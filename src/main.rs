@@ -1,16 +1,15 @@
 use std::net::{SocketAddr, ToSocketAddrs};
-use sqlite::Connection;
-use sqlite::OpenFlags;
+use sqlx::sqlite::{SqliteRow, SqlitePool};
+use sqlx::{Pool, Row};
 use warp::Filter;
-
 
 #[tokio::main]
 async fn main() {
-    let db = match open_db() {
+    let db = match open_db().await {
         Ok(db) => db,
         Err(e) => panic!("{}", e),
     };
-    match migrate_db(&db) {
+    match migrate_db(&db).await {
         Ok(_) => (),
         Err(e) => panic!("{}", e),
     };
@@ -18,38 +17,36 @@ async fn main() {
     // TODO: add error handling and read addr from env var
     let mut addr_iter = "[::]:3030".to_socket_addrs().unwrap();
     let addr = addr_iter.next().unwrap();
-    
+
     start_webserver(addr).await;
 }
 
-fn open_db() -> Result<sqlite::Connection, sqlite::Error> {
-    let flags = OpenFlags::new()
-        .set_create()
-        .set_full_mutex()
-        .set_read_write();
-    let connection = sqlite::Connection::open_with_flags("/tmp/strichliste.sqlite", flags);
-    return connection;
+
+async fn open_db() -> Result<SqlitePool, sqlx::Error> {
+    let db = Pool::new("sqlite:/tmp/strichliste.sqlite");
+    return db.await;
 }
 
-fn migrate_db(db: &Connection) -> Result<(), sqlite::Error> {
+async fn migrate_db(db: &SqlitePool) -> Result<(), sqlx::Error> {
     // enable WAL mode
-    db.execute("PRAGMA journal_mode=WAL;")?;
+    //db.execute("PRAGMA journal_mode=WAL;")?;
 
     // make sure the version table exists
-    db.execute("CREATE TABLE IF NOT EXISTS version (num INTEGER PRIMARY KEY);")?;
-    db.execute("INSERT OR IGNORE INTO version VALUES(0);")?;
+    sqlx::query("CREATE TABLE IF NOT EXISTS version (num INTEGER PRIMARY KEY);")
+        .execute(db)
+        .await?;
+    sqlx::query("INSERT OR IGNORE INTO version VALUES(0);")
+        .execute(db)
+        .await?;
 
     // get latest version number
-    let cur_version = db
-        .prepare("SELECT num FROM version ORDER BY num DESC LIMIT 1")?
-        .cursor()
-        .next()?
-        .unwrap()[0]
-        .as_integer()
-        .unwrap();
+    let cur_version: i32 = sqlx::query("SELECT num FROM version ORDER BY num DESC LIMIT 1")
+        .map(|row: SqliteRow| row.get(0))
+        .fetch_one(db)
+        .await?;
 
     if cur_version == 0 {
-        db.execute("BEGIN TRANSACTION;
+        sqlx::query("BEGIN TRANSACTION;
 
                     CREATE TABLE article (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,7 +96,8 @@ fn migrate_db(db: &Connection) -> Result<(), sqlite::Error> {
 
                     INSERT INTO version VALUES(1);
                 
-                    END TRANSACTION;")?;
+                    END TRANSACTION;")
+                    .execute(db).await?;
     }
 
     // db.execute("CASE WHEN SELECT num FROM version WHERE num = 1 THEN
