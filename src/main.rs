@@ -147,21 +147,25 @@ async fn start_webserver(addr: SocketAddr, db: SqlitePool) {
     // see next link how to add apis
     // https://blog.logrocket.com/creating-a-rest-api-in-rust-with-warp/
 
+    // settings API
     let settings_api = warp::get()
         .and(warp::path!("settings"))
         .and_then(get_settings);
-    let users_api = warp::get()
+
+    // user API
+    let user_path = warp::path!("user" / ..);
+    let get_users_api = warp::get()
         .and(with_db(db.clone()))
-        .and(warp::path!("user"))
         .and(warp::query::<HashMap<String, String>>())
         .and_then(get_users);
     let add_user_api = warp::post()
         .and(with_db(db.clone()))
-        .and(warp::path!("user"))
         .and(warp::body::json())
         .and_then(add_user);
+    let user_api = user_path.and(get_users_api.or(add_user_api));
 
-    let api = warp::path("api").and(settings_api.or(users_api).or(add_user_api));
+    // bind it together
+    let api = warp::path("api").and(settings_api.or(user_api));
 
     warp::serve(api).run(addr).await;
 }
