@@ -154,13 +154,16 @@ async fn start_webserver(addr: SocketAddr, db: SqlitePool) {
     // https://blog.logrocket.com/creating-a-rest-api-in-rust-with-warp/
 
     let hello = warp::path!("hello" / String).map(|name| format!("Hello, {}!", name));
+    let settings = warp::get()
+        .and(warp::path!("settings"))
+        .and_then(get_settings);
     let users = warp::get()
         .and(warp::path!("user"))
         .and(warp::query::<HashMap<String, String>>())
         .and(with_db(db))
         .and_then(get_users);
 
-    let api = warp::path("api").and(hello.or(users));
+    let api = warp::path("api").and(hello.or(settings).or(users));
 
     warp::serve(api).run(addr).await;
 }
@@ -169,6 +172,11 @@ fn with_db(
     db_pool: SqlitePool,
 ) -> impl Filter<Extract = (SqlitePool,), Error = Infallible> + Clone {
     warp::any().map(move || db_pool.clone())
+}
+
+async fn get_settings() -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+    let settings = default_settings();
+    return Ok(Box::new(warp::reply::json(&settings)));
 }
 
 async fn get_users(
@@ -181,9 +189,13 @@ async fn get_users(
         .flatten()
         .unwrap_or(false);
 
-    let user_entities_result = sqlx::query_as::<_, UserEntity>("SELECT id, name, email, balance, disabled, created, updated FROM user WHERE disabled IS ?")
-        .bind(deleted.to_string())
-        .fetch_all(&db);
+    let stale_period = ms_converter::ms("10 day").unwrap() * 1000;
+
+    let user_entities_result = sqlx::query_as::<_, UserEntity>(
+        "SELECT id, name, email, balance, disabled, created, updated FROM user WHERE disabled IS ?",
+    )
+    .bind(deleted.to_string())
+    .fetch_all(&db);
 
     let result: UsersResponse;
     match user_entities_result.await {
@@ -210,5 +222,182 @@ async fn get_users(
             println!("Failed to query user table. {}", e);
             return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
         }
+    };
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct SettingsWrapper {
+    parameters: Settings,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct Settings {
+    strichliste: StrichlisteSetting,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct StrichlisteSetting {
+    article: ArticleSettings,
+    common: CommonSettings,
+    paypal: PaypalSetting,
+    user: UserSetting,
+    i18n: I18nSetting,
+    account: AccountSetting,
+    payment: PaymentSetting,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct ArticleSettings {
+    enabled: bool,
+    #[serde(rename(serialize = "autoOpen", deserialize = "autoOpen"))]
+    auto_open: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct CommonSettings {
+    #[serde(rename(serialize = "idleTimeout", deserialize = "idleTimeout"))]
+    idle_timeout: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct PaypalSetting {
+    enabled: bool,
+    recipient: String,
+    fee: i32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct UserSetting {
+    #[serde(rename(serialize = "stalePeriod", deserialize = "stalePeriod"))]
+    stale_period: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct I18nSetting {
+    #[serde(rename(serialize = "dateFormat", deserialize = "dateFormat"))]
+    date_format: String,
+    timezone: String,
+    language: String,
+    currency: CurrencySetting,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct CurrencySetting {
+    name: String,
+    symbol: String,
+    alpha3: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct AccountSetting {
+    boundary: BoundarySetting,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct BoundarySetting {
+    upper: i32,
+    lower: i32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct PaymentSetting {
+    undo: UndoSetting,
+    boundary: BoundarySetting,
+    transactions: TransactionSetting,
+    #[serde(rename(serialize = "splitInvoice", deserialize = "splitInvoice"))]
+    split_invoice: SplitInvoiceSetting,
+    deposit: DepositSetting,
+    dispense: DepositSetting,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct UndoSetting {
+    enabled: bool,
+    delete: bool,
+    timeout: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct TransactionSetting {
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct SplitInvoiceSetting {
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct DepositSetting {
+    enabled: bool,
+    custom: bool,
+    steps: Vec<i32>,
+}
+
+fn default_settings() -> SettingsWrapper {
+    return SettingsWrapper {
+        parameters: Settings {
+            strichliste: StrichlisteSetting {
+                article: ArticleSettings {
+                    enabled: true,
+                    auto_open: false,
+                },
+                common: CommonSettings {
+                    idle_timeout: 30000,
+                },
+                paypal: PaypalSetting {
+                    enabled: false,
+                    recipient: "foo@bar.de".to_string(),
+                    fee: 0,
+                },
+                user: UserSetting {
+                    stale_period: "10 day".to_string(),
+                },
+                i18n: I18nSetting {
+                    date_format: "YYYY-MM-DD HH:mm:ss".to_string(),
+                    timezone: "auto".to_string(),
+                    language: "en".to_string(),
+                    currency: CurrencySetting {
+                        name: "Euro".to_string(),
+                        symbol: "€".to_string(),
+                        alpha3: "EUR".to_string(),
+                    },
+                },
+                account: AccountSetting {
+                    boundary: BoundarySetting {
+                        upper: 20000,
+                        lower: -20000,
+                    },
+                },
+                payment: PaymentSetting {
+                    undo: UndoSetting {
+                        enabled: true,
+                        delete: false,
+                        timeout: "5 minute".to_string(),
+                    },
+
+                    boundary: BoundarySetting {
+                        upper: 15000,
+                        lower: -2000,
+                    },
+
+                    transactions: TransactionSetting { enabled: true },
+
+                    split_invoice: SplitInvoiceSetting { enabled: true },
+
+                    deposit: DepositSetting {
+                        enabled: true,
+                        custom: true,
+                        steps: [50, 100, 200, 500, 1000].to_vec(),
+                    },
+
+                    dispense: DepositSetting {
+                        enabled: true,
+                        custom: true,
+                        steps: [50, 100, 200, 500, 1000].to_vec(),
+                    },
+                },
+            },
+        },
     };
 }
