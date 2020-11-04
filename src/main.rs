@@ -117,19 +117,8 @@ async fn migrate_db(db: &SqlitePool) -> Result<(), sqlx::Error> {
     return Ok(());
 }
 
-#[derive(Debug, sqlx::FromRow)]
-struct UserEntity {
-    id: i32,
-    name: String,
-    email: Option<String>,
-    balance: i32,
-    disabled: bool,
-    created: String,
-    updated: Option<String>,
-}
-
 #[derive(Debug, Deserialize, Serialize, Clone, sqlx::FromRow)]
-struct UserResponse {
+struct UserEntity {
     id: i32,
     name: String,
     email: Option<String>,
@@ -144,7 +133,12 @@ struct UserResponse {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct UsersResponse {
-    users: Vec<UserResponse>,
+    users: Vec<UserEntity>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct UserAddReq {
+    name: String,
 }
 
 async fn start_webserver(addr: SocketAddr, db: SqlitePool) {
@@ -153,17 +147,21 @@ async fn start_webserver(addr: SocketAddr, db: SqlitePool) {
     // see next link how to add apis
     // https://blog.logrocket.com/creating-a-rest-api-in-rust-with-warp/
 
-    let hello = warp::path!("hello" / String).map(|name| format!("Hello, {}!", name));
-    let settings = warp::get()
+    let settings_api = warp::get()
         .and(warp::path!("settings"))
         .and_then(get_settings);
-    let users = warp::get()
+    let users_api = warp::get()
+        .and(with_db(db.clone()))
         .and(warp::path!("user"))
         .and(warp::query::<HashMap<String, String>>())
-        .and(with_db(db))
         .and_then(get_users);
+    let add_user_api = warp::post()
+        .and(with_db(db.clone()))
+        .and(warp::path!("user"))
+        .and(warp::body::json())
+        .and_then(add_user);
 
-    let api = warp::path("api").and(hello.or(settings).or(users));
+    let api = warp::path("api").and(settings_api.or(users_api).or(add_user_api));
 
     warp::serve(api).run(addr).await;
 }
@@ -175,13 +173,14 @@ fn with_db(
 }
 
 async fn get_settings() -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+    // TODO: use settings from hard disc
     let settings = default_settings();
     return Ok(Box::new(warp::reply::json(&settings)));
 }
 
 async fn get_users(
-    query: HashMap<String, String>,
     db: SqlitePool,
+    query: HashMap<String, String>,
 ) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
     let deleted: bool = query
         .get("deleted")
@@ -189,32 +188,51 @@ async fn get_users(
         .flatten()
         .unwrap_or(false);
 
+    // seconds until user is counted as inactive
     let stale_period = ms_converter::ms("10 day").unwrap() * 1000;
 
     let user_entities_result = sqlx::query_as::<_, UserEntity>(
-        "SELECT id, name, email, balance, disabled, created, updated FROM user WHERE disabled IS ?",
+        "SELECT id, name, email, balance, disabled, 
+         CASE WHEN updated NOTNULL THEN (strftime('%s','now') - strftime('%s',updated)) < ? ELSE FALSE END as active,
+         created, updated 
+         FROM user WHERE disabled IS ?",
     )
-    .bind(deleted.to_string())
+    .bind(stale_period)
+    .bind(deleted)
     .fetch_all(&db);
 
-    let result: UsersResponse;
     match user_entities_result.await {
         Ok(user_entities) => {
-            let user_responses = user_entities
-                .iter()
-                .map(|v| UserResponse {
-                    id: v.id,
-                    name: v.name.clone(),
-                    email: v.email.clone(),
-                    balance: v.balance,
-                    active: true,
-                    disabled: v.disabled,
-                    created: v.created.clone(),
-                    updated: v.updated.clone(),
-                })
-                .collect();
-            result = UsersResponse {
-                users: user_responses,
+            let result = UsersResponse {
+                users: user_entities,
+            };
+            return Ok(Box::new(warp::reply::json(&result)));
+        }
+        Err(e) => {
+            println!("Failed to query user table. {}", e);
+            return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
+        }
+    };
+}
+
+async fn add_user(
+    db: SqlitePool,
+    user_req: UserAddReq,
+) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+    let user_entity_result = sqlx::query_as::<_, UserEntity>(
+        "INSERT INTO user (name, balance, disabled, created)
+         VALUES('f00bar', 0, FALSE, datetime('now'));
+         
+         SELECT id, name, email, balance, disabled, FALSE AS active, created, updated
+         FROM user WHERE id = last_insert_rowid();",
+    )
+    .bind(user_req.name)
+    .fetch_one(&db);
+
+    match user_entity_result.await {
+        Ok(user_entities) => {
+            let result = UsersResponse {
+                users: vec![user_entities],
             };
             return Ok(Box::new(warp::reply::json(&result)));
         }
