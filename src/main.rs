@@ -141,6 +141,27 @@ struct UserAddReq {
     name: String,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, sqlx::FromRow)]
+struct TransactionEntity {
+    id: i32,
+    #[serde(skip)]
+    user_id: i32,
+    user: Option<UserEntity>,
+    #[serde(skip)]
+    article_id: Option<i32>,
+    article: Option<ArticleEntity>,
+    #[serde(skip)]
+    recipient_transaction_id: Option<i32>,
+    recipient_transaction: Option<Box<TransactionEntity>>,
+    #[serde(skip)]
+    sender_transaction_id: Option<i32>,
+    sender_transaction: Option<Box<TransactionEntity>>,
+    quantity: Option<i32>,
+    comment: Option<String>,
+    amount: i32,
+    deleted: bool,
+    created: String,
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone, sqlx::FromRow)]
 struct ArticleEntity {
@@ -156,6 +177,15 @@ struct ArticleEntity {
     usage_count: i32,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct ArticleAddReq {
+    name: String,
+    barcode: Option<String>,
+    amount: i32,
+    #[serde(rename(serialize = "isActive", deserialize = "isActive"))]
+    active: bool,
+    precursor: Option<ArticleEntity>,
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct ArticlesResp {
@@ -184,10 +214,27 @@ async fn start_webserver(addr: SocketAddr, db: SqlitePool) {
         .and(with_db(db.clone()))
         .and(warp::body::json())
         .and_then(add_user);
-    let user_api = user_path.and(get_users_api.or(add_user_api));
+    let get_transactions_api = warp::get()
+        .and(with_db(db.clone()))
+        .and(warp::path!(u32 / "transaction"))
+        .and(warp::query::<HashMap<String, u32>>())
+        .and_then(get_transactions);
+    let user_api = user_path.and(get_users_api.or(add_user_api).or(get_transactions_api));
+
+    // article API
+    let article_path = warp::path!("article" / ..);
+    let get_article_api = warp::get()
+        .and(with_db(db.clone()))
+        .and(warp::query::<HashMap<String, String>>())
+        .and_then(get_articles);
+    let add_article_api = warp::post()
+        .and(with_db(db.clone()))
+        .and(warp::body::json())
+        .and_then(add_article);
+    let article_api = article_path.and(get_article_api.or(add_article_api));
 
     // bind it together
-    let api = warp::path("api").and(settings_api.or(user_api));
+    let api = warp::path("api").and(settings_api.or(user_api).or(article_api));
 
     warp::serve(api).run(addr).await;
 }
@@ -269,6 +316,22 @@ async fn add_user(
     };
 }
 
+async fn get_transactions(
+    db: SqlitePool,
+    user_id: u32,
+    query: HashMap<String, u32>,
+) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+
+    return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
+}
+
+async fn add_article(
+    db: SqlitePool,
+    user_req: UserAddReq,
+) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+
+    return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
+}
 
 async fn get_articles(
     db: SqlitePool,
