@@ -132,7 +132,7 @@ struct UserEntity {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-struct UsersResponse {
+struct UsersResp {
     users: Vec<UserEntity>,
 }
 
@@ -229,7 +229,7 @@ async fn get_users(
 
     match user_entities_result.await {
         Ok(user_entities) => {
-            let result = UsersResponse {
+            let result = UsersResp {
                 users: user_entities,
             };
             return Ok(Box::new(warp::reply::json(&result)));
@@ -257,13 +257,13 @@ async fn add_user(
 
     match user_entity_result.await {
         Ok(user_entities) => {
-            let result = UsersResponse {
+            let result = UsersResp {
                 users: vec![user_entities],
             };
             return Ok(Box::new(warp::reply::json(&result)));
         }
         Err(e) => {
-            println!("Failed to query user table. {}", e);
+            println!("Failed to add new user. {}", e);
             return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
         }
     };
