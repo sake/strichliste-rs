@@ -1,0 +1,26 @@
+FROM debian:bullseye AS prepare
+
+RUN apt update && apt -y install curl tar
+
+WORKDIR /srv
+RUN curl -L https://github.com/strichliste/strichliste-web-frontend/releases/download/v1.7.1/strichliste-web-frontend.tar.gz | tar xzf - --strip-components=1
+
+
+FROM debian:bullseye
+
+COPY --from=prepare /srv /srv
+
+RUN apt update && apt -y install nginx vim procps && apt clean
+# libgcc libc6-compat gcompat
+#RUN mkdir /run/nginx && chown nginx /run/nginx
+
+COPY docker/nginx.conf /etc/nginx/nginx.conf
+COPY docker/default.conf /etc/nginx/conf.d/default.conf
+
+WORKDIR /var/lib/strichliste-rs
+COPY docker/strichliste.yaml /etc/
+
+ENV BIND_ADDRESS=[::]:3030 DB_FILE=/var/lib/strichliste-rs/strichliste.sqlite
+
+EXPOSE 8080/tcp
+CMD nginx && strichliste-rs
