@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sqlx::prelude::SqliteQueryAs;
 use sqlx::sqlite::{SqlitePool, SqliteRow};
@@ -263,13 +264,14 @@ fn with_db(
 
 fn with_settings(
     settings: SettingsWrapper
-) -> impl Filter<Extract = (SettingsWrapper,), Error = Infallible> + Clone {
+) -> impl Filter<Extract = (Arc<SettingsWrapper>,), Error = Infallible> + Clone {
+    let sw = Arc::new(settings);
     // TODO: figure out how to use reference
-    warp::any().map(move || settings.clone())
+    warp::any().map(move || sw.clone())
 }
 
-async fn get_settings(settings: SettingsWrapper) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
-    return Ok(Box::new(warp::reply::json(&settings)));
+async fn get_settings(settings: Arc<SettingsWrapper>) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+    return Ok(Box::new(warp::reply::json(&*settings)));
 }
 
 async fn get_users(
