@@ -5,12 +5,27 @@ use sqlx::{Pool, Row};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::env;
+use std::fs::File;
 use std::net::{SocketAddr, ToSocketAddrs};
 use warp::Filter;
 
+const BIND_ADDR_ENV: &str = "BIND_ADDRESS";
+const BIND_ADDR_DEFAULT: &str = "[::]:3030";
+
+const DB_FILE_ENV: &str = "DB_FILE";
+const DB_FILE_DEFAULT: &str = "/var/lib/strichliste/strichliste.sqlite";
+
+const SETTINGS_FILE_ENV: &str = "SETTINGS_FILE";
+const SETTINGS_FILE_DEFAULT: &str = "/etc/strichliste.yaml";
+
 #[tokio::main]
 async fn main() {
-    let db_file = env_or("DB_FILE", "/tmp/strichliste.sqlite");
+    let settings = match load_settings() {
+        Ok(s) => s,
+        Err(e) =>  panic!("{}", e),
+    };
+
+    let db_file = env_or(DB_FILE_ENV, DB_FILE_DEFAULT);
     let db = match open_db(db_file.as_str()).await {
         Ok(db) => db,
         Err(e) => panic!("{}", e),
@@ -21,11 +36,11 @@ async fn main() {
     };
 
     // TODO: add error handling
-    let addr_str = env_or("BIND_ADDRESS", "[::]:3030");
+    let addr_str = env_or(BIND_ADDR_ENV, BIND_ADDR_DEFAULT);
     let mut addr_iter = addr_str.to_socket_addrs().unwrap();
     let addr = addr_iter.next().unwrap();
 
-    start_webserver(addr, db).await;
+    start_webserver(addr, db, settings).await;
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -193,7 +208,7 @@ struct ArticlesResp {
     articles: Vec<ArticleEntity>,
 }
 
-async fn start_webserver(addr: SocketAddr, db: SqlitePool) {
+async fn start_webserver(addr: SocketAddr, db: SqlitePool, settings: SettingsWrapper) {
     println!("Starting webserver binding to {} ...", addr);
 
     // see next link how to add apis
@@ -201,6 +216,7 @@ async fn start_webserver(addr: SocketAddr, db: SqlitePool) {
 
     // settings API
     let settings_api = warp::get()
+        .and(with_settings(settings.clone()))
         .and(warp::path!("settings"))
         .and_then(get_settings);
 
@@ -245,9 +261,14 @@ fn with_db(
     warp::any().map(move || db_pool.clone())
 }
 
-async fn get_settings() -> Result<Box<dyn warp::Reply>, warp::Rejection> {
-    // TODO: use settings from hard disc
-    let settings = default_settings();
+fn with_settings(
+    settings: SettingsWrapper
+) -> impl Filter<Extract = (SettingsWrapper,), Error = Infallible> + Clone {
+    // TODO: figure out how to use reference
+    warp::any().map(move || settings.clone())
+}
+
+async fn get_settings(settings: SettingsWrapper) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
     return Ok(Box::new(warp::reply::json(&settings)));
 }
 
@@ -365,8 +386,7 @@ async fn get_articles(
     .bind(active)
     .bind(limit)
     .bind(offset)
-    .map(|row: SqliteRow|
-         ArticleEntity {
+    .map(|row: SqliteRow| ArticleEntity {
         id: row.get(0),
         precursor_id: row.get(1),
         precursor: None,
@@ -376,7 +396,8 @@ async fn get_articles(
         active: row.get(5),
         created: row.get(6),
         usage_count: row.get(7),
-    }).fetch_all(&db);
+    })
+    .fetch_all(&db);
 
     match article_entities_result.await {
         Ok(mut article_entities) => {
@@ -386,8 +407,8 @@ async fn get_articles(
                     Err(e) => {
                         println!("Failed to add precursor tables. {}", e);
                         return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
-                    },
-                    Ok(_) => ()
+                    }
+                    Ok(_) => (),
                 };
             }
 
@@ -404,7 +425,10 @@ async fn get_articles(
     };
 }
 
-async fn add_precursor_articles(db: SqlitePool, root: &mut ArticleEntity) -> Result<(), sqlx::Error> {
+async fn add_precursor_articles(
+    db: SqlitePool,
+    root: &mut ArticleEntity,
+) -> Result<(), sqlx::Error> {
     let mut next_precursor_id: Option<i32> = root.precursor_id.clone();
     let mut precursors: Vec<Box<ArticleEntity>> = Vec::new();
 
@@ -425,16 +449,17 @@ async fn add_precursor_articles(db: SqlitePool, root: &mut ArticleEntity) -> Res
             active: row.get(5),
             created: row.get(6),
             usage_count: row.get(7),
-        }).fetch_optional(&db);
+        })
+        .fetch_optional(&db);
 
         match article_result.await? {
-            Some(v) =>  {
+            Some(v) => {
                 next_precursor_id = v.precursor_id;
                 precursors.push(Box::new(v));
-            },
-            None =>  {
+            }
+            None => {
                 break;
-            },
+            }
         }
     }
 
@@ -451,7 +476,6 @@ async fn add_precursor_articles(db: SqlitePool, root: &mut ArticleEntity) -> Res
 
     return Ok(());
 }
-
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct SettingsWrapper {
@@ -562,70 +586,20 @@ struct DepositSetting {
     steps: Vec<i32>,
 }
 
-fn default_settings() -> SettingsWrapper {
-    return SettingsWrapper {
-        parameters: Settings {
-            strichliste: StrichlisteSetting {
-                article: ArticleSettings {
-                    enabled: true,
-                    auto_open: false,
-                },
-                common: CommonSettings {
-                    idle_timeout: 30000,
-                },
-                paypal: PaypalSetting {
-                    enabled: false,
-                    recipient: "foo@bar.de".to_string(),
-                    fee: 0,
-                },
-                user: UserSetting {
-                    stale_period: "10 day".to_string(),
-                },
-                i18n: I18nSetting {
-                    date_format: "YYYY-MM-DD HH:mm:ss".to_string(),
-                    timezone: "auto".to_string(),
-                    language: "en".to_string(),
-                    currency: CurrencySetting {
-                        name: "Euro".to_string(),
-                        symbol: "€".to_string(),
-                        alpha3: "EUR".to_string(),
-                    },
-                },
-                account: AccountSetting {
-                    boundary: BoundarySetting {
-                        upper: 20000,
-                        lower: -20000,
-                    },
-                },
-                payment: PaymentSetting {
-                    undo: UndoSetting {
-                        enabled: true,
-                        delete: false,
-                        timeout: "5 minute".to_string(),
-                    },
+fn load_settings() -> Result<SettingsWrapper, std::io::Error> {
+    let settings_file = env_or(SETTINGS_FILE_ENV, SETTINGS_FILE_DEFAULT);
+    let file = File::open(&settings_file)?;
 
-                    boundary: BoundarySetting {
-                        upper: 15000,
-                        lower: -2000,
-                    },
+    return serde_yaml::from_reader(file).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Failed to parse YAML data: {}", e),
+        )
+    });
 
-                    transactions: TransactionSetting { enabled: true },
-
-                    split_invoice: SplitInvoiceSetting { enabled: true },
-
-                    deposit: DepositSetting {
-                        enabled: true,
-                        custom: true,
-                        steps: [50, 100, 200, 500, 1000].to_vec(),
-                    },
-
-                    dispense: DepositSetting {
-                        enabled: true,
-                        custom: true,
-                        steps: [50, 100, 200, 500, 1000].to_vec(),
-                    },
-                },
-            },
-        },
-    };
+    // why does the following not work?!?
+    // return match serde_yaml::from_reader(file) {
+    //     Ok(settings) => settings,
+    //     Err(err) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to parse YAML data.")),
+    // }
 }
