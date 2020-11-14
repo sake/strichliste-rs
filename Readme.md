@@ -9,4 +9,4 @@ Note that podman is a docker drop in replacement which does not require root acc
 The good old docker can be used alternatively.
 
 `$ podman build -t strichliste-dev -f Dockerfile.dev .`
-`$ podman run -it --rm -v ./target/debug/strichliste-rs:/usr/local/bin/strichliste-rs -v ./dev:/var/lib/strichliste-rs -p8080:8080 strichliste-dev`
+`$ podman run -it --rm -v ./target/debug/:/strichliste-build/ -v ./dev:/var/lib/strichliste-rs -p8080:8080 strichliste-dev`
