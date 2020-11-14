@@ -14,3 +14,4 @@ serde_yaml = "0.8.14"
 tokio = { version = "0.2.22", features = ["macros", "rt-threaded"] }
 sqlx = { version="0.4.1", default-features = false, features = ["runtime-tokio-native-tls", "sqlite", "macros", "chrono"] }
 ms-converter = "1.4.0"
+regex = "1"
