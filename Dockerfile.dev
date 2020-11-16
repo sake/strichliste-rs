@@ -3,7 +3,7 @@ FROM debian:bullseye AS prepare
 RUN apt update && apt -y install curl tar
 
 WORKDIR /srv
-RUN curl -L https://github.com/strichliste/strichliste-web-frontend/releases/download/v1.7.1/strichliste-web-frontend.tar.gz | tar xzf - --strip-components=1
+RUN curl -L https://github.com/strichliste/strichliste-web-frontend/releases/download/v1.6.2/strichliste-web-frontend.tar.gz | tar xzf - --strip-components=1
 
 
 FROM debian:bullseye
