@@ -5,11 +5,15 @@ use warp::Filter;
 
 use crate::common::{with_db, with_settings};
 
+mod article_api;
+mod article_db;
 mod common;
 mod db;
 mod model;
 mod settings;
 mod settings_api;
+mod transaction_api;
+mod transaction_db;
 mod user_api;
 mod user_db;
 
@@ -81,19 +85,16 @@ async fn start_webserver(addr: SocketAddr, db: SqlitePool, settings: settings::S
     let add_user = warp::post()
         .and(warp::path::end())
         .and(with_db(db.clone()))
+        .and(warp::body::content_length_limit(1024 * 32))
         .and(warp::body::json())
         .and_then(user_api::add_user);
     let update_user = warp::post()
         .and(with_db(db.clone()))
         .and(with_settings(settings.clone()))
         .and(warp::path!(i32))
+        .and(warp::body::content_length_limit(1024 * 32))
         .and(warp::body::json())
         .and_then(user_api::update_user);
-    // let get_transactions_api = warp::get()
-    //     .and(with_db(db.clone()))
-    //     .and(warp::path!(i32 / "transaction"))
-    //     .and(warp::query::<HashMap<String, i32>>())
-    //     .and_then(get_transactions);
     let user_api = user_path.and(
         get_users
             .or(get_user)
@@ -102,26 +103,64 @@ async fn start_webserver(addr: SocketAddr, db: SqlitePool, settings: settings::S
             .or(update_user),
     );
 
-    // let add_transaction_api = warp::post()
-    //     .and(with_db(db.clone()))
-    //     .and(warp::path!(i32 / "transaction"))
-    //     .and(warp::body::json())
-    //     .and_then(add_transaction);
-
     // article API
-    // let article_path = warp::path!("article" / ..);
-    // let get_article_api = warp::get()
-    //     .and(with_db(db.clone()))
-    //     .and(warp::query::<HashMap<String, String>>())
-    //     .and_then(get_articles);
-    // let add_article_api = warp::post()
-    //     .and(with_db(db.clone()))
-    //     .and(warp::body::json())
-    //     .and_then(add_article);
-    // let article_api = article_path.and(get_article_api.or(add_article_api));
+    let article_path = warp::path("article");
+    let get_articles = warp::get()
+        .and(warp::path::end())
+        .and(with_db(db.clone()))
+        .and(warp::query::<HashMap<String, String>>())
+        .and_then(article_api::get_articles);
+    let get_article = warp::get()
+        .and(with_db(db.clone()))
+        .and(warp::path!(i32))
+        .and_then(article_api::get_article);
+    let add_article = warp::post()
+        .and(warp::path::end())
+        .and(with_db(db.clone()))
+        .and(warp::body::content_length_limit(1024 * 32))
+        .and(warp::body::json())
+        .and_then(article_api::add_article);
+    let update_article = warp::post()
+        .and(with_db(db.clone()))
+        .and(warp::path!(i32))
+        .and(warp::body::content_length_limit(1024 * 32))
+        .and(warp::body::json())
+        .and_then(article_api::update_article);
+    let delete_article = warp::delete()
+        .and(with_db(db.clone()))
+        .and(warp::path!(i32))
+        .and_then(article_api::delete_article);
+    let article_api = article_path.and(
+        get_articles
+            .or(get_article)
+            .or(add_article)
+            .or(update_article)
+            .or(delete_article),
+    );
+
+    // transaction API
+    let get_user_transactions = warp::get()
+        .and(with_db(db.clone()))
+        .and(with_settings(settings.clone()))
+        .and(warp::path!(i32 / "transaction"))
+        .and(warp::query::<HashMap<String, i32>>())
+        .and_then(transaction_api::get_transactions);
+    let add_user_transaction = warp::post()
+        .and(with_db(db.clone()))
+        .and(with_settings(settings.clone()))
+        .and(warp::path!(i32 / "transaction"))
+        .and(warp::body::content_length_limit(1024 * 32))
+        .and(warp::body::json())
+        .and_then(transaction_api::add_transaction);
+    let transaction_api = user_path.and(get_user_transactions.or(add_user_transaction));
 
     // bind it together
-    let api = warp::path("api").and(settings_api.or(user_api) /*.or(article_api)*/);
+    let api = warp::path("api").and(
+        settings_api
+            .or(user_api)
+            .or(article_api)
+            .or(transaction_api),
+    );
 
     warp::serve(api).run(addr).await;
 }

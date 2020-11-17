@@ -26,6 +26,7 @@ pub struct ArticleEntity {
     pub name: String,
     pub barcode: Option<String>,
     pub amount: i32,
+    #[serde(rename(serialize = "isActive", deserialize = "isActive"))]
     pub active: bool,
     pub created: String,
     pub usage_count: i32,
@@ -64,7 +65,7 @@ pub struct ArticleObject {
 pub struct TransactionObject {
     #[serde(flatten)]
     pub entity: TransactionEntity,
-    pub user: Option<UserEntity>,
+    pub user: UserEntity,
     pub article: Option<ArticleObject>,
     pub recipient_transaction: Option<Box<TransactionObject>>,
     pub sender_transaction: Option<Box<TransactionObject>>,
@@ -73,6 +74,38 @@ pub struct TransactionObject {
 //
 // request objects
 //
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UserAddReq {
+    pub name: String,
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UserUpdateReq {
+    pub name: String,
+    pub email: Option<String>,
+    #[serde(rename(serialize = "isDisabled", deserialize = "isDisabled"))]
+    pub is_disabled: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ArticleAddReq {
+    pub name: String,
+    pub barcode: Option<String>,
+    pub amount: i32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TransactionAddReq {
+    pub amount: i32,
+    pub quantity: Option<i32>,
+    pub comment: Option<String>,
+    #[serde(rename(serialize = "recipientId", deserialize = "recipientId"))]
+    pub recipient_id: Option<i32>,
+    #[serde(rename(serialize = "articleId", deserialize = "articleId"))]
+    pub article_id: Option<i32>,
+}
 
 //
 // response objects
@@ -90,42 +123,13 @@ pub struct UserResp {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct UserAddReq {
-    pub name: String,
-    pub email: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct UserUpdateReq {
-    pub name: String,
-    pub email: Option<String>,
-    #[serde(rename(serialize = "isDisabled", deserialize = "isDisabled"))]
-    pub is_disabled: bool,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct TransactionAddReq {
-    pub amount: i32,
-    pub quantity: Option<i32>,
-    pub comment: Option<String>,
-    #[serde(rename(serialize = "recipientId", deserialize = "recipientId"))]
-    pub recipient_id: Option<i32>,
-    #[serde(rename(serialize = "articleId", deserialize = "articleId"))]
-    pub article_id: Option<i32>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ArticleAddReq {
-    pub name: String,
-    pub barcode: Option<String>,
-    pub amount: i32,
-    #[serde(rename(serialize = "isActive", deserialize = "isActive"))]
-    pub active: bool,
-    pub precursor: Option<ArticleObject>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ArticlesResp {
     pub count: usize,
     pub articles: Vec<ArticleObject>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TransactionsResp {
+    pub count: usize,
+    pub transactions: Vec<TransactionObject>,
 }

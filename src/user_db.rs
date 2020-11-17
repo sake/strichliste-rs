@@ -38,11 +38,11 @@ pub async fn get_users(
 }
 
 pub async fn get_user(
-    db: SqlitePool,
-    settings: Arc<StrichlisteSetting>,
+    db: &SqlitePool,
+    settings: &StrichlisteSetting,
     user_id: i32,
 ) -> Result<Option<model::UserEntity>> {
-    let stale_period = settings::get_stale_period(settings.as_ref());
+    let stale_period = settings::get_stale_period(settings);
 
     let user_entity_result = sqlx::query_as::<_, model::UserEntity>(
         "SELECT id, name, email, balance, disabled, 
@@ -52,7 +52,7 @@ pub async fn get_user(
 	)
 	.bind(stale_period)
     .bind(user_id)
-    .fetch_optional(&db).await;
+    .fetch_optional(db).await;
 
     return user_entity_result;
 }
@@ -104,7 +104,7 @@ pub async fn create_user(
 
 pub async fn update_user(
     db: SqlitePool,
-    settings: Arc<StrichlisteSetting>,
+    settings: &StrichlisteSetting,
     user_id: i32,
     name: &str,
     email: Option<&str>,
@@ -122,7 +122,7 @@ pub async fn update_user(
     .execute(&db)
     .await?;
 
-    return match get_user(db, settings, user_id).await {
+    return match get_user(&db, settings, user_id).await {
         Ok(v) => Ok(v.unwrap()),
         Err(e) => Err(e),
     };

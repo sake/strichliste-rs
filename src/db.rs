@@ -15,22 +15,15 @@ pub async fn migrate_db(db: &SqlitePool) -> Result<(), sqlx::Error> {
     // enable WAL mode
     //db.execute("PRAGMA journal_mode=WAL;")?;
 
-    // make sure the version table exists
-    sqlx::query("CREATE TABLE IF NOT EXISTS version (num INTEGER PRIMARY KEY);")
-        .execute(db)
-        .await?;
-    sqlx::query("INSERT OR IGNORE INTO version VALUES(0);")
-        .execute(db)
-        .await?;
-
     // get latest version number
-    let cur_version: i32 = sqlx::query("SELECT num FROM version ORDER BY num DESC LIMIT 1")
+    let mut cur_version: i32 = sqlx::query("PRAGMA user_version;")
         .map(|row: SqliteRow| row.get(0))
         .fetch_one(db)
         .await?;
 
     if cur_version == 0 {
-        println!("Running migration #{}", cur_version + 1);
+        cur_version += 1;
+        println!("Running migration #{}", cur_version);
         sqlx::query("BEGIN TRANSACTION;
 
                     CREATE TABLE user (
@@ -57,6 +50,17 @@ pub async fn migrate_db(db: &SqlitePool) -> Result<(), sqlx::Error> {
                         CONSTRAINT uniq_precursor UNIQUE (precursor_id),
                         CONSTRAINT fk_article_precursor_article_id FOREIGN KEY (precursor_id) REFERENCES article (id)
                     );
+                    --CREATE UNIQUE INDEX uniq_active_barcode ON article (barcode) where active is TRUE;
+                    CREATE TRIGGER trgr_update_no_inactive_article BEFORE INSERT ON article
+                        WHEN NEW.precursor_id NOT NULL AND EXISTS (SELECT * from article WHERE id = NEW.precursor_id AND active IS FALSE)
+                        BEGIN
+                            SELECT RAISE(FAIL, 'Updating inactive article is not allowed.');
+                        END;
+                    CREATE TRIGGER trgr_update_unique_name_barcode BEFORE INSERT ON article
+                        WHEN EXISTS (SELECT 1 from article WHERE active IS TRUE AND id != NEW.precursor_id AND (name = NEW.name OR barcode = NEW.barcode))
+                        BEGIN
+                            SELECT RAISE(FAIL, 'Name or barcode is not unique.');
+                        END;
 
                     CREATE TABLE transactions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,7 +83,7 @@ pub async fn migrate_db(db: &SqlitePool) -> Result<(), sqlx::Error> {
                     CREATE INDEX idx_transaction_userid ON transactions (user_id);
                     CREATE INDEX idx_transaction_articleid ON transactions (article_id);
 
-                    INSERT INTO version VALUES(1);
+                    PRAGME user_version = 1;
 
                     END TRANSACTION;")
                     .execute(db).await?;

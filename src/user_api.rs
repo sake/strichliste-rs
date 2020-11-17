@@ -38,7 +38,7 @@ pub async fn get_user(
     settings: Arc<settings::StrichlisteSetting>,
     user_id: i32,
 ) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
-    let user_entity = user_db::get_user(db, settings, user_id);
+    let user_entity = user_db::get_user(&db, &settings, user_id);
 
     return match user_entity.await {
         Ok(Some(user_entity)) => {
@@ -91,7 +91,11 @@ pub async fn add_user(
 
     let email = user_req.email;
     // check email
-    match email.as_deref().map(|v| common::assert_email(v)) {
+    match email
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+        .map(|v| common::assert_email(v))
+    {
         Some(Err(_)) => {
             return Ok(Box::new(warp::http::StatusCode::FORBIDDEN));
         }
@@ -123,7 +127,11 @@ pub async fn update_user(
 
     let email = user_req.email;
     // check email
-    match email.as_deref().map(|v| common::assert_email(v)) {
+    match email
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+        .map(|v| common::assert_email(v))
+    {
         Some(Err(_)) => {
             return Ok(Box::new(warp::http::StatusCode::FORBIDDEN));
         }
@@ -134,7 +142,7 @@ pub async fn update_user(
 
     let user_entity_result = user_db::update_user(
         db,
-        settings,
+        &settings,
         user_id,
         name_san.as_ref(),
         email.as_deref(),
