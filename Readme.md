@@ -1,6 +1,6 @@
 # About strichliste-rs
 
-This project is a reimplementation of the backend of the marvellous [Strichliste](https://www.strichliste.org) created by the a few guys from Backspace Bamberg (https://www.hackerspace-bamberg.de).
+This project is a reimplementation of the backend of the almighty [Strichliste](https://www.strichliste.org) created by the a few guys from Backspace Bamberg (https://www.hackerspace-bamberg.de).
 Also see https://github.com/strichliste for the source of the original.
 
 Right now this is just an elaborate Hello World program to teach myself rust, so don't expect high quality code.
@@ -12,7 +12,7 @@ However without changing the CRUD interface, the frontend expects, it does not m
 
 Maybe I will try something as fancy as [elm](https://elm-lang.org/) and redo the frontend as well.
 
-As long as this is  not the case this must be considered as a toy project to learn a new language.
+As long as this is  not the case this must be considered a toy project to learn a new language.
 Use the original Strichliste if you need something actively maintained.
 
 # Dev Environment
