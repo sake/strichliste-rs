@@ -82,6 +82,8 @@ pub async fn migrate_db(db: &SqlitePool) -> Result<(), sqlx::Error> {
                     );
                     CREATE INDEX idx_transaction_userid ON transactions (user_id);
                     CREATE INDEX idx_transaction_articleid ON transactions (article_id);
+                    CREATE INDEX idx_transaction_sendertxid ON transactions (sender_transaction_id);
+                    CREATE INDEX idx_transaction_recipienttxid ON transactions (recipient_transaction_id);
 
                     PRAGME user_version = 1;
 

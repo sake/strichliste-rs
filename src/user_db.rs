@@ -40,7 +40,7 @@ pub async fn get_users(
 pub async fn get_user(
     db: &SqlitePool,
     settings: &StrichlisteSetting,
-    user_id: i32,
+    user_id: &i32,
 ) -> Result<Option<model::UserEntity>> {
     let stale_period = settings::get_stale_period(settings);
 
@@ -122,7 +122,7 @@ pub async fn update_user(
     .execute(&db)
     .await?;
 
-    return match get_user(&db, settings, user_id).await {
+    return match get_user(&db, settings, &user_id).await {
         Ok(v) => Ok(v.unwrap()),
         Err(e) => Err(e),
     };

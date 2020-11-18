@@ -47,7 +47,7 @@ pub async fn add_transaction(
         return Ok(Box::new(warp::http::StatusCode::BAD_REQUEST));
     }
 
-    let user = match user_db::get_user(&db, &*settings, user_id).await {
+    let user = match user_db::get_user(&db, &*settings, &user_id).await {
         Ok(Some(u)) => u,
         Ok(None) => return Ok(Box::new(warp::http::StatusCode::NOT_FOUND)),
         Err(_) => return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
@@ -77,12 +77,39 @@ pub async fn add_transaction(
                 None => {}
             };
 
-            transaction_db::add_transaction_with_article(&db, user, &quantity, &amount, article, req.comment.as_deref())
-                .await
+            transaction_db::add_transaction_with_article(
+                &db,
+                user,
+                &quantity,
+                &amount,
+                article,
+                req.comment.as_deref(),
+            )
+            .await
         }
         // transaction with recipient
         (None, None, Some(recipient_id)) => {
-            return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
+            let amount = req.amount;
+            let recipient = match user_db::get_user(&db, &*settings, &recipient_id).await {
+                Ok(Some(v)) => v,
+                Ok(None) => return Ok(Box::new(warp::http::StatusCode::NOT_FOUND)),
+                Err(_) => return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
+            };
+
+            // checking the payee is sufficient
+            match check_limit(&*settings, &(user.balance + amount), &amount) {
+                Some(r) => return Ok(r),
+                None => {}
+            };
+
+            transaction_db::add_transaction_with_recipient(
+                &db,
+                user,
+                &amount,
+                recipient,
+                req.comment.as_deref(),
+            )
+            .await
         }
         _ => return Ok(Box::new(warp::http::StatusCode::BAD_REQUEST)),
     };
@@ -91,56 +118,7 @@ pub async fn add_transaction(
         Ok(result) => Ok(Box::new(warp::reply::json(&result))),
         Err(_) => Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
     };
-
-    // let recipient = match req.recipient_id {
-    //     Some(recipient_id) => match user_db::get_user(&db, &*settings, recipient_id).await {
-    //         Ok(v) => {
-    //             if v.is_some() == req.recipient_id.is_some() {
-    //                 v
-    //             } else {
-    //                 return Ok(Box::new(warp::http::StatusCode::NOT_FOUND));
-    //             }
-    //         }
-    //         Err(_) => return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
-    //     },
-    //     None => None,
-    // };
-
-    // let quantity = req.quantity.unwrap_or(1);
-    // let amount = article.map(|v| v.entity.amount).amount;
-
-    // return match transaction_db::add_transaction(
-    //     &db, &*settings, user, &amount, &quantity, article, recipient,
-    // )
-    // .await
-    // {
-    //     Ok(result) => Ok(Box::new(warp::reply::json(&result))),
-    //     Err(e) => Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
-    // };
 }
-
-// $article = null;
-// if ($articleId) {
-// 	$article = $this->entityManager->getRepository(Article::class)->find($articleId);
-// 	if (!$article) {
-// 		throw new ArticleNotFoundException($articleId);
-// 	}
-
-// 	if (!$article->isActive()) {
-// 		throw new ArticleInactiveException($article);
-// 	}
-
-// 	$transaction->setQuantity($quantity ?: 1);
-
-// 	if ($amount === null) {
-// 		$amount = $article->getAmount() * $transaction->getQuantity() * -1;
-// 	}
-
-// 	$transaction->setArticle($article);
-
-// 	$article->incrementUsageCount();
-// 	$this->entityManager->persist($article);
-// }
 
 fn check_limit(
     settings: &StrichlisteSetting,

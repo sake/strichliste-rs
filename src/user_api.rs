@@ -38,7 +38,7 @@ pub async fn get_user(
     settings: Arc<settings::StrichlisteSetting>,
     user_id: i32,
 ) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
-    let user_entity = user_db::get_user(&db, &settings, user_id);
+    let user_entity = user_db::get_user(&db, &settings, &user_id);
 
     return match user_entity.await {
         Ok(Some(user_entity)) => {
