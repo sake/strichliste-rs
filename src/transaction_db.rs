@@ -1,6 +1,6 @@
 use sqlx::{sqlite::SqlitePool, Result};
 
-use crate::{model, settings::StrichlisteSetting, user_db};
+use crate::{article_db, common, model, settings::StrichlisteSetting, user_db};
 
 pub async fn get_transactions(
     db: &SqlitePool,
@@ -25,12 +25,17 @@ pub async fn get_transactions(
         let user = user_db::get_user(db, settings, &parent.user_id)
             .await?
             .ok_or(sqlx::Error::RowNotFound)?;
+        let article = article_db::get_article(db, parent.article_id).await?;
+        let recipient_tx =
+            get_child_transaction(db, settings, parent.recipient_transaction_id.as_ref()).await?;
+        let sender_tx =
+            get_child_transaction(db, settings, parent.sender_transaction_id.as_ref()).await?;
         let o = model::TransactionObject {
             entity: parent,
             user,
-            article: None,
-            recipient_transaction: None,
-            sender_transaction: None,
+            article: article.map(|a| *a),
+            recipient: recipient_tx.map(|v| v.user),
+            sender: sender_tx.map(|v| v.user),
         };
         result.push(o);
     }
@@ -38,29 +43,35 @@ pub async fn get_transactions(
     return Ok(result);
 }
 
-pub async fn get_transaction(
+async fn get_child_transaction(
     db: &SqlitePool,
     settings: &StrichlisteSetting,
-    transact_id: &i32,
-) -> Result<model::TransactionObject> {
-    let transaction_entity = sqlx::query_as::<_, model::TransactionEntity>(
+    transact_id: Option<&i32>,
+) -> Result<Option<Box<model::TransactionObject>>> {
+    match transact_id {
+        Some(tx_id) => {
+            let transaction_entity = sqlx::query_as::<_, model::TransactionEntity>(
 		"SELECT id, user_id, article_id, recipient_transaction_id, sender_transaction_id, quantity, comment, amount, deleted, created
 		FROM transactions
 		WHERE id = ?"
 	)
-	.bind(transact_id)
+	.bind(tx_id)
 	.fetch_one(db).await?;
 
-    let user = user_db::get_user(db, settings, &transaction_entity.user_id)
-        .await?
-        .ok_or(sqlx::Error::RowNotFound)?;
-    return Ok(model::TransactionObject {
-        entity: transaction_entity,
-        user,
-        article: None,
-        recipient_transaction: None,
-        sender_transaction: None,
-    });
+            match user_db::get_user(db, settings, &transaction_entity.user_id).await {
+                Ok(Some(user)) => Ok(Some(Box::new(model::TransactionObject {
+                    entity: transaction_entity,
+                    user,
+                    article: None,
+                    recipient: None,
+                    sender: None,
+                }))),
+                Ok(None) => Ok(None),
+                Err(e) => Err(e),
+            }
+        }
+        None => Ok(None),
+    }
 }
 
 pub async fn num_active(db: &SqlitePool, user_id: Option<i32>) -> Result<i32> {
@@ -83,7 +94,7 @@ pub async fn add_transaction_with_value(
     comment: Option<&str>,
 ) -> Result<model::TransactionObject> {
     let result = sqlx::query_as::<_, model::TransactionEntity>(
-		"UPDATE user SET balance = balance + ?
+		"UPDATE user SET balance = balance + ?, updated = datetime('now')
 		WHERE id = ?;
 		
 		INSERT INTO transactions (user_id, comment, amount, deleted, created)
@@ -101,13 +112,14 @@ pub async fn add_transaction_with_value(
 
     // correct entity object
     user.balance += amount;
+    user.updated = Some(common::cur_datetime_str());
 
     return Ok(model::TransactionObject {
         entity: result,
         user: user,
         article: None,
-        sender_transaction: None,
-        recipient_transaction: None,
+        sender: None,
+        recipient: None,
     });
 }
 
@@ -120,7 +132,7 @@ pub async fn add_transaction_with_article(
     comment: Option<&str>,
 ) -> Result<model::TransactionObject> {
     let result = sqlx::query_as::<_, model::TransactionEntity>(
-		"UPDATE user SET balance = balance + ?
+		"UPDATE user SET balance = balance + ?, updated = datetime('now')
         WHERE id = ?;
         
         UPDATE article SET usage_count = usage_count + 1
@@ -144,14 +156,15 @@ pub async fn add_transaction_with_article(
 
     // correct entity objects
     user.balance += amount;
+    user.updated = Some(common::cur_datetime_str());
     article.entity.usage_count += 1;
 
     return Ok(model::TransactionObject {
         entity: result,
         user: user,
         article: Some(article),
-        sender_transaction: None,
-        recipient_transaction: None,
+        sender: None,
+        recipient: None,
     });
 }
 
@@ -162,8 +175,8 @@ pub async fn add_transaction_with_recipient(
     mut recipient: model::UserEntity,
     comment: Option<&str>,
 ) -> Result<model::TransactionObject> {
-    let mut result = sqlx::query_as::<_, model::TransactionEntity>(
-		"UPDATE user SET balance = balance + ?
+    let result = sqlx::query_as::<_, model::TransactionEntity>(
+		"UPDATE user SET balance = balance + ?, updated = datetime('now')
         WHERE id = ?;
         UPDATE user SET balance = (balance + ?) * -1
 		WHERE id = ?;
@@ -172,15 +185,14 @@ pub async fn add_transaction_with_recipient(
 		INSERT INTO transactions (user_id, comment, amount, deleted, created)
         VALUES (?, ?, ?, FALSE, datetime('now'));
         -- recipient transaction
-		INSERT INTO transactions (user_id, recipient_transaction_id, comment, amount, deleted, created)
+		INSERT INTO transactions (user_id, sender_transaction_id, comment, amount, deleted, created)
 		VALUES (?, last_insert_rowid(), ?, ? * -1, FALSE, datetime('now'));
         -- update sender transaction reference
-        UPDATE transactions SET sender_transaction_id = last_insert_rowid()
-        WHERE id IN (SELECT recipient_transaction_id FROM transactions WHERE id = last_insert_rowid());
+        UPDATE transactions SET recipient_transaction_id = last_insert_rowid()
+        WHERE id IN (SELECT sender_transaction_id FROM transactions WHERE id = last_insert_rowid());
 		
 		SELECT id, user_id, article_id, recipient_transaction_id, sender_transaction_id, quantity, comment, amount, deleted, created
-		FROM transactions WHERE id = last_insert_rowid() OR sender_transaction_id = last_insert_rowid()
-		ORDER BY id ASC;"
+		FROM transactions WHERE recipient_transaction_id = last_insert_rowid();"
     )
     // update user
 	.bind(amount)
@@ -195,27 +207,18 @@ pub async fn add_transaction_with_recipient(
 	.bind(recipient.id)
 	.bind(comment)
 	.bind(amount)
-	.fetch_all(db).await?;
+	.fetch_one(db).await?;
 
     // correct entity object
     user.balance += amount;
+    user.updated = Some(common::cur_datetime_str());
     recipient.balance -= amount;
 
-    match (result.pop(), result.pop()) {
-        (Some(sender_tx), Some(recep_tx)) => Ok(model::TransactionObject {
-            entity: sender_tx,
-            user: user,
-            article: None,
-            sender_transaction: None,
-            recipient_transaction: Some(Box::new(model::TransactionObject {
-                entity: recep_tx,
-                user: recipient,
-                article: None,
-                sender_transaction: None,
-                recipient_transaction: None,
-            })),
-        }),
-        // TODO: should be something like internal server error or unknown error
-        _ => Err(sqlx::Error::ColumnNotFound("unknown".to_string())),
-    }
+    Ok(model::TransactionObject {
+        entity: result,
+        user: user,
+        article: None,
+        sender: None,
+        recipient: Some(recipient),
+    })
 }

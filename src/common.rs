@@ -1,7 +1,7 @@
 use std::{borrow::Cow, convert::Infallible, env, sync::Arc};
 
 use regex::Regex;
-use sqlx::SqlitePool;
+use sqlx::{types::chrono::Local, SqlitePool};
 use warp::Filter;
 
 use crate::settings;
@@ -30,9 +30,17 @@ pub fn sanitize_control_chars(input: &str) -> Cow<str> {
 }
 
 pub fn assert_email(input: &str) -> Result<(), &str> {
-    let re = Regex::new(r#"^[a-zA-Z0-9.!#$%&’*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$"#).unwrap();
+    let re = Regex::new(r#"^[a-zA-Z0-9.!#$%&’*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$"#)
+        .unwrap();
     return match re.is_match(input) {
         true => Ok(()),
-        false => Err("Value is not an email address.")
+        false => Err("Value is not an email address."),
     };
+}
+
+pub fn cur_datetime_str() -> String {
+    return Local::now()
+        .naive_local()
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
 }

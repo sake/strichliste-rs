@@ -42,21 +42,15 @@ pub async fn add_transaction(
     user_id: i32,
     req: model::TransactionAddReq,
 ) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
-    if (req.recipient_id.is_some() || req.article_id.is_some()) && req.amount > 0 {
-        // Amount can't be positive when sending money or buying an article
-        return Ok(Box::new(warp::http::StatusCode::BAD_REQUEST));
-    }
-
     let user = match user_db::get_user(&db, &*settings, &user_id).await {
         Ok(Some(u)) => u,
         Ok(None) => return Ok(Box::new(warp::http::StatusCode::NOT_FOUND)),
         Err(_) => return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
     };
 
-    let transaction = match (req.article_id, req.quantity, req.recipient_id) {
+    let transaction = match (req.amount, req.article_id, req.recipient_id) {
         // transaction with pure value
-        (None, None, None) => {
-            let amount = req.amount;
+        (Some(amount), None, None) => {
             match check_limit(&*settings, &(user.balance + amount), &amount) {
                 Some(r) => return Ok(r),
                 None => {}
@@ -65,13 +59,15 @@ pub async fn add_transaction(
                 .await
         }
         // transaction with article
-        (Some(article_id), Some(quantity), _) => {
+        (None, Some(article_id), _) => {
+            let quantity = req.quantity.unwrap_or(1);
+
             let article = match article_db::get_article_or_error(&db, article_id).await {
                 Ok(v) => v,
                 Err(_) => return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
             };
 
-            let amount = req.amount * quantity * -1;
+            let amount = article.entity.amount * quantity * -1;
             match check_limit(&*settings, &(user.balance + amount), &amount) {
                 Some(r) => return Ok(r),
                 None => {}
@@ -88,8 +84,7 @@ pub async fn add_transaction(
             .await
         }
         // transaction with recipient
-        (None, None, Some(recipient_id)) => {
-            let amount = req.amount;
+        (Some(amount), None, Some(recipient_id)) if amount < 0 => {
             let recipient = match user_db::get_user(&db, &*settings, &recipient_id).await {
                 Ok(Some(v)) => v,
                 Ok(None) => return Ok(Box::new(warp::http::StatusCode::NOT_FOUND)),
@@ -116,7 +111,10 @@ pub async fn add_transaction(
 
     return match transaction {
         Ok(result) => Ok(Box::new(warp::reply::json(&result))),
-        Err(_) => Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
+        Err(e) => {
+            println!("Failed to add transaction to DB: {}", e);
+            Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR))
+        }
     };
 }
 

@@ -67,8 +67,8 @@ pub struct TransactionObject {
     pub entity: TransactionEntity,
     pub user: UserEntity,
     pub article: Option<ArticleObject>,
-    pub recipient_transaction: Option<Box<TransactionObject>>,
-    pub sender_transaction: Option<Box<TransactionObject>>,
+    pub recipient: Option<UserEntity>,
+    pub sender: Option<UserEntity>,
 }
 
 //
@@ -98,7 +98,7 @@ pub struct ArticleAddReq {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TransactionAddReq {
-    pub amount: i32,
+    pub amount: Option<i32>,
     pub quantity: Option<i32>,
     pub comment: Option<String>,
     #[serde(rename(serialize = "recipientId", deserialize = "recipientId"))]
