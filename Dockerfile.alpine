@@ -1,0 +1,37 @@
+ARG CONTAINER_VERSION=3.12
+FROM rust:alpine${CONTAINER_VERSION} AS prepare
+
+ARG FRONTEND_TGZ_URL=https://github.com/strichliste/strichliste-web-frontend/releases/download/v1.7.1/strichliste-web-frontend.tar.gz
+
+RUN apk add --no-cache curl tar gzip
+WORKDIR /web
+RUN curl -L "${FRONTEND_TGZ_URL}" | tar xzf - --strip-components=1
+
+RUN apk add --no-cache musl-dev openssl-dev
+
+WORKDIR /build
+COPY Cargo.* /build/
+COPY src/ /build/src/
+
+RUN cargo build --release
+
+
+FROM alpine:${CONTAINER_VERSION}
+
+COPY --from=prepare /web /srv
+
+RUN apk add --no-cache nginx
+RUN mkdir /run/nginx && chown nginx /run/nginx
+RUN adduser -SDH -s /bin/sh strichliste
+
+COPY docker/nginx.conf /etc/nginx/nginx.conf
+COPY docker/default.conf /etc/nginx/conf.d/default.conf
+RUN sed -e "s/user www-data/user nginx/" -i /etc/nginx/nginx.conf
+COPY docker/strichliste.yaml /etc/
+
+COPY --from=prepare /build/target/release/strichliste-rs /usr/local/bin/
+COPY docker/run_strichliste.sh /usr/local/bin/
+
+EXPOSE 8080/tcp
+VOLUME /var/lib/strichliste-rs
+CMD /usr/local/bin/run_strichliste.sh

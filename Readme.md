@@ -29,3 +29,20 @@ The good old docker can be used alternatively.
 $ podman build -t strichliste-dev -f Dockerfile.dev .
 $ podman run -it --rm -v ./target/debug/:/strichliste-build/ -v ./dev:/var/lib/strichliste-rs -p8080:8080 strichliste-dev
 ```
+
+# Production Build
+
+The `Dockerfile.alpine` builds a container with a release build and proper priviledge separation.
+The Dockerfile builds the strichliste binary in a first phase and assembles the image for execution in a second stage.
+
+The following commands show how the container can be build and how it is started with the minimal provided compose file.
+
+```
+$ docker build -t strichliste-rs -f Dockerfile.alpine .
+$ docker-compose up
+```
+
+In order to configure the strichliste, just provide a suitable config file at the path `/etc/strichliste.yaml`.
+
+The database is created in the volume at `/var/lib/strichliste-rs`.
+If a bind mount is desired, just replace the location in a derived docker-compose file.
