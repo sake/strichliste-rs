@@ -1,19 +1,19 @@
 use sqlx::{
-    sqlite::{SqlitePool, SqliteRow},
+    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow},
     Row,
 };
 
 pub async fn open_db(db_file: &str) -> Result<SqlitePool, sqlx::Error> {
-    let db_string = format!("sqlite:{}", db_file);
-    let db = SqlitePool::connect(db_string.as_str());
+    let opts = SqliteConnectOptions::new()
+        .filename(db_file)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .create_if_missing(true);
+    let db = SqlitePoolOptions::new().connect_with(opts);
     return db.await;
 }
 
 pub async fn migrate_db(db: &SqlitePool) -> Result<(), sqlx::Error> {
     println!("Checking DB migration ...");
-
-    // enable WAL mode
-    //db.execute("PRAGMA journal_mode=WAL;")?;
 
     // get latest version number
     let mut cur_version: i32 = sqlx::query("PRAGMA user_version;")
@@ -24,8 +24,9 @@ pub async fn migrate_db(db: &SqlitePool) -> Result<(), sqlx::Error> {
     if cur_version == 0 {
         cur_version += 1;
         println!("Running migration #{}", cur_version);
-        sqlx::query("BEGIN TRANSACTION;
 
+        let mut tx = db.begin().await?;
+        sqlx::query("
                     CREATE TABLE user (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name VARCHAR(64) NOT NULL,
@@ -85,10 +86,9 @@ pub async fn migrate_db(db: &SqlitePool) -> Result<(), sqlx::Error> {
                     CREATE INDEX idx_transaction_sendertxid ON transactions (sender_transaction_id);
                     CREATE INDEX idx_transaction_recipienttxid ON transactions (recipient_transaction_id);
 
-                    PRAGMA user_version = 1;
-
-                    END TRANSACTION;")
-                    .execute(db).await?;
+                    PRAGMA user_version = 1;")
+                    .execute(&mut tx).await?;
+        tx.commit().await?;
     }
 
     return Ok(());

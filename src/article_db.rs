@@ -101,11 +101,13 @@ pub async fn add_article(
     amount: i32,
 ) -> Result<model::ArticleObject> {
     let article_entity_result = sqlx::query_as::<_, model::ArticleEntity>(
-        "INSERT INTO article (name, barcode, amount, active, created, usage_count)
-		 VALUES(?, ?, ?, TRUE, datetime('now'), 0);
+        "BEGIN TRANSACTION;
+        INSERT INTO article (name, barcode, amount, active, created, usage_count)
+		VALUES(?, ?, ?, TRUE, datetime('now'), 0);
 
-         SELECT id, precursor_id, name, barcode, amount, active, created, usage_count
-         FROM article WHERE id = last_insert_rowid();",
+        SELECT id, precursor_id, name, barcode, amount, active, created, usage_count
+        FROM article WHERE id = last_insert_rowid();
+        END TRANSACTION;",
     )
     .bind(name)
     .bind(barcode)
@@ -128,7 +130,8 @@ pub async fn update_article(
 ) -> Result<model::ArticleObject> {
     let child = get_article(db, Some(precursor_id)).await?;
     let article_entity = sqlx::query_as::<_, model::ArticleEntity>(
-		"-- try to insert, trigger prevents updating inactive articles
+        "BEGIN TRANSACTION;
+        -- try to insert, trigger prevents updating inactive articles
 		INSERT INTO article (precursor_id, name, barcode, amount, active, created, usage_count)
 		SELECT id, ?, ?, ?, TRUE, datetime('now'), usage_count
 		FROM article WHERE id = ?;
@@ -138,7 +141,8 @@ pub async fn update_article(
 		WHERE id = ?;
 
 		SELECT id, precursor_id, name, barcode, amount, active, created, usage_count
-		FROM article WHERE id = last_insert_rowid();",
+        FROM article WHERE id = last_insert_rowid();
+        END TRANSACTION;",
     )
     .bind(name)
     .bind(barcode)
@@ -155,7 +159,9 @@ pub async fn update_article(
 }
 
 pub async fn delete_article(db: &SqlitePool, article_id: i32) -> Result<model::ArticleObject> {
-    sqlx::query("UPDATE article SET active = FALSE WHERE id = ?;")
+    sqlx::query("BEGIN TRANSACTION;
+            UPDATE article SET active = FALSE WHERE id = ?;
+            END TRANSACTION;")
         .bind(article_id)
         .execute(db)
         .await?;

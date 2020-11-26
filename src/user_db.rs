@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use sqlx::{sqlite::SqlitePool, Result};
+use sqlx::{Connection, Result, SqliteConnection, sqlite::SqlitePool};
 
-use crate::settings::StrichlisteSetting;
+use crate::{error::DbError, settings::StrichlisteSetting};
 use crate::{model, settings};
 
 pub async fn get_users(
-    db: SqlitePool,
+    db: &SqlitePool,
     settings: Arc<StrichlisteSetting>,
     disabled: bool,
     active: Option<bool>,
@@ -32,7 +32,7 @@ pub async fn get_users(
     .bind(disabled)
     .bind(query_active)
     .bind(query_not_active)
-    .fetch_all(&db).await;
+    .fetch_all(db).await;
 
     return user_entities_result;
 }
@@ -41,7 +41,7 @@ pub async fn get_user(
     db: &SqlitePool,
     settings: &StrichlisteSetting,
     user_id: &i32,
-) -> Result<Option<model::UserEntity>> {
+) -> std::result::Result<Option<model::UserEntity>, DbError> {
     let stale_period = settings::get_stale_period(settings);
 
     let user_entity_result = sqlx::query_as::<_, model::UserEntity>(
@@ -52,17 +52,17 @@ pub async fn get_user(
 	)
 	.bind(stale_period)
     .bind(user_id)
-    .fetch_optional(db).await;
+    .fetch_optional(db).await?;
 
-    return user_entity_result;
+    return Ok(user_entity_result);
 }
 
 pub async fn search_user(
-    db: SqlitePool,
+    db: &SqlitePool,
     settings: Arc<StrichlisteSetting>,
     name_search: &str,
     limit: i32,
-) -> Result<Vec<model::UserEntity>> {
+) -> std::result::Result<Vec<model::UserEntity>, DbError> {
     let search = format!("%{}%", name_search);
 
     let stale_period = settings::get_stale_period(settings.as_ref());
@@ -77,53 +77,54 @@ pub async fn search_user(
 	.bind(stale_period)
 	.bind(search)
 	.bind(limit)
-    .fetch_all(&db).await;
+    .fetch_all(db).await?;
 
-    return user_entity_result;
+    return Ok(user_entity_result);
 }
 
 pub async fn create_user(
-    db: SqlitePool,
+    db: &mut SqliteConnection,
     name: &str,
     email: Option<&str>,
 ) -> Result<model::UserEntity> {
+    let mut tx = db.begin().await?;
     let user_entity_result = sqlx::query_as::<_, model::UserEntity>(
         "INSERT INTO user (name, email, balance, disabled, created)
 		 VALUES(?, ?, 0, FALSE, datetime('now'));
 		 
 		 SELECT id, name, email, balance, disabled, FALSE AS active, created, updated
-		 FROM user WHERE id = last_insert_rowid();",
+         FROM user WHERE id = last_insert_rowid();",
     )
     .bind(name)
     .bind(email)
-    .fetch_one(&db)
-    .await;
+    .fetch_one(&mut tx)
+    .await?;
+    tx.commit().await?;
 
-    return user_entity_result;
+    return Ok(user_entity_result);
 }
 
 pub async fn update_user(
-    db: SqlitePool,
+    db: &SqlitePool,
     settings: &StrichlisteSetting,
     user_id: i32,
     name: &str,
     email: Option<&str>,
     disabled: bool,
-) -> Result<model::UserEntity> {
+) -> std::result::Result<model::UserEntity, DbError> {
+    let mut tx = db.begin().await?;
     sqlx::query(
         "UPDATE user
 		 SET name = ?, email = ?, disabled = ?
-		 WHERE id = ?",
+         WHERE id = ?;",
     )
     .bind(name)
     .bind(email)
     .bind(disabled)
     .bind(user_id)
-    .execute(&db)
+    .execute(&mut tx)
     .await?;
+    tx.commit().await?;
 
-    return match get_user(&db, settings, &user_id).await {
-        Ok(v) => Ok(v.unwrap()),
-        Err(e) => Err(e),
-    };
+    return get_user(&db, settings, &user_id).await.map(|v| v.unwrap());
 }

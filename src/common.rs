@@ -1,7 +1,7 @@
 use std::{borrow::Cow, convert::Infallible, env, sync::Arc};
 
 use regex::Regex;
-use sqlx::{types::chrono::Local, SqlitePool};
+use sqlx::{pool::PoolConnection, types::chrono::Local, Sqlite, SqlitePool};
 use warp::Filter;
 
 use crate::settings;
@@ -14,6 +14,11 @@ pub fn with_db(
     db_pool: SqlitePool,
 ) -> impl Filter<Extract = (SqlitePool,), Error = Infallible> + Clone {
     warp::any().map(move || db_pool.clone())
+}
+
+pub async fn get_db_con(db_pool: &SqlitePool) -> PoolConnection<Sqlite> {
+    let con = db_pool.acquire().await.unwrap();
+    con
 }
 
 pub fn with_settings(

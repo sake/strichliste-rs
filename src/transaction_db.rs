@@ -1,6 +1,6 @@
 use sqlx::{sqlite::SqlitePool, Result};
 
-use crate::{article_db, common, model, settings::StrichlisteSetting, user_db};
+use crate::{error::DbError, article_db, common, model, settings::StrichlisteSetting, user_db};
 
 pub async fn get_transactions(
     db: &SqlitePool,
@@ -8,7 +8,7 @@ pub async fn get_transactions(
     user_id: &i32,
     limit: &i32,
     offset: &i32,
-) -> Result<Vec<model::TransactionObject>> {
+) -> std::result::Result<Vec<model::TransactionObject>, DbError> {
     let transaction_entities_result = sqlx::query_as::<_, model::TransactionEntity>(
 		"SELECT id, user_id, article_id, recipient_transaction_id, sender_transaction_id, quantity, comment, amount, deleted, created
 		FROM transactions
@@ -47,13 +47,13 @@ async fn get_child_transaction(
     db: &SqlitePool,
     settings: &StrichlisteSetting,
     transact_id: Option<&i32>,
-) -> Result<Option<Box<model::TransactionObject>>> {
+) -> std::result::Result<Option<Box<model::TransactionObject>>, DbError> {
     match transact_id {
         Some(tx_id) => {
             let transaction_entity = sqlx::query_as::<_, model::TransactionEntity>(
 		"SELECT id, user_id, article_id, recipient_transaction_id, sender_transaction_id, quantity, comment, amount, deleted, created
-		FROM transactions
-		WHERE id = ?"
+        FROM transactions
+        WHERE id = ?"
 	)
 	.bind(tx_id)
 	.fetch_one(db).await?;
@@ -94,14 +94,16 @@ pub async fn add_transaction_with_value(
     comment: Option<&str>,
 ) -> Result<model::TransactionObject> {
     let result = sqlx::query_as::<_, model::TransactionEntity>(
-		"UPDATE user SET balance = balance + ?, updated = datetime('now')
+        "BEGIN TRANSACTION;
+        UPDATE user SET balance = balance + ?, updated = datetime('now')
 		WHERE id = ?;
 		
 		INSERT INTO transactions (user_id, comment, amount, deleted, created)
 		VALUES (?, ?, ?, FALSE, datetime('now'));
 		
 		SELECT id, user_id, article_id, recipient_transaction_id, sender_transaction_id, quantity, comment, amount, deleted, created
-		FROM transactions WHERE id = last_insert_rowid();"
+        FROM transactions WHERE id = last_insert_rowid();
+        END TRANSACTION;"
 	)
 	.bind(amount)
 	.bind(user.id)
@@ -132,7 +134,8 @@ pub async fn add_transaction_with_article(
     comment: Option<&str>,
 ) -> Result<model::TransactionObject> {
     let result = sqlx::query_as::<_, model::TransactionEntity>(
-		"UPDATE user SET balance = balance + ?, updated = datetime('now')
+        "BEGIN TRANSACTION;
+        UPDATE user SET balance = balance + ?, updated = datetime('now')
         WHERE id = ?;
         
         UPDATE article SET usage_count = usage_count + 1
@@ -142,7 +145,8 @@ pub async fn add_transaction_with_article(
 		VALUES (?, ?, ?, ?, ?, FALSE, datetime('now'));
 		
 		SELECT id, user_id, article_id, recipient_transaction_id, sender_transaction_id, quantity, comment, amount, deleted, created
-		FROM transactions WHERE id = last_insert_rowid();"
+        FROM transactions WHERE id = last_insert_rowid();
+        END TRANSACTION;"
 	)
 	.bind(amount)
     .bind(user.id)
@@ -176,7 +180,9 @@ pub async fn add_transaction_with_recipient(
     comment: Option<&str>,
 ) -> Result<model::TransactionObject> {
     let result = sqlx::query_as::<_, model::TransactionEntity>(
-		"UPDATE user SET balance = balance + ?, updated = datetime('now')
+        "BEGIN TRANSACTION;
+
+        UPDATE user SET balance = balance + ?, updated = datetime('now')
         WHERE id = ?;
         UPDATE user SET balance = (balance + ?) * -1
 		WHERE id = ?;
@@ -192,7 +198,9 @@ pub async fn add_transaction_with_recipient(
         WHERE id IN (SELECT sender_transaction_id FROM transactions WHERE id = last_insert_rowid());
 		
 		SELECT id, user_id, article_id, recipient_transaction_id, sender_transaction_id, quantity, comment, amount, deleted, created
-		FROM transactions WHERE recipient_transaction_id = last_insert_rowid();"
+        FROM transactions WHERE recipient_transaction_id = last_insert_rowid();
+        
+        END TRANSACTION;"
     )
     // update user
 	.bind(amount)
@@ -203,7 +211,7 @@ pub async fn add_transaction_with_recipient(
 	.bind(user.id)
 	.bind(comment)
     .bind(amount)
-        // insert recipient transaction
+    // insert recipient transaction
 	.bind(recipient.id)
 	.bind(comment)
 	.bind(amount)

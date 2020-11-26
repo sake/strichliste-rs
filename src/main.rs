@@ -5,6 +5,7 @@ use warp::Filter;
 
 use crate::common::{with_db, with_settings};
 
+mod error;
 mod article_api;
 mod article_db;
 mod common;
@@ -159,7 +160,8 @@ async fn start_webserver(addr: SocketAddr, db: SqlitePool, settings: settings::S
         settings_api
             .or(user_api)
             .or(article_api)
-            .or(transaction_api),
+            .or(transaction_api)
+            .recover(error::handle_my_error),
     );
 
     warp::serve(api).run(addr).await;

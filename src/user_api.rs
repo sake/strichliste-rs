@@ -1,8 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use sqlx::SqlitePool;
+use warp::reject::custom;
 
-use crate::{common, model, settings, user_db};
+use crate::{error::DbError, common, model, settings, user_db};
 
 pub async fn get_users(
     db: SqlitePool,
@@ -16,7 +17,7 @@ pub async fn get_users(
         .unwrap_or(false);
     let active: Option<bool> = query.get("active").map(|v| v.parse().ok()).flatten();
 
-    let user_entities = user_db::get_users(db, settings, deleted, active);
+    let user_entities = user_db::get_users(&db, settings, deleted, active);
 
     return match user_entities.await {
         Ok(user_entities) => {
@@ -38,18 +39,14 @@ pub async fn get_user(
     settings: Arc<settings::StrichlisteSetting>,
     user_id: i32,
 ) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
-    let user_entity = user_db::get_user(&db, &settings, &user_id);
+    let user_entity = user_db::get_user(&db, &settings, &user_id).await;
 
-    return match user_entity.await {
-        Ok(Some(user_entity)) => {
+    return match user_entity? {
+        Some(user_entity) => {
             let result = model::UserResp { user: user_entity };
             Ok(Box::new(warp::reply::json(&result)))
         }
-        Ok(None) => Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
-        Err(e) => {
-            println!("Failed to query user table. {}", e);
-            Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR))
-        }
+        None => Err(custom(DbError::EntityNotFound)),
     };
 }
 
@@ -65,7 +62,7 @@ pub async fn find_user(
         .flatten()
         .unwrap_or(25);
 
-    let user_entity_result = user_db::search_user(db, settings, name_search, limit);
+    let user_entity_result = user_db::search_user(&db, settings, name_search, limit);
 
     return match user_entity_result.await {
         Ok(user_entity) => {
@@ -102,7 +99,9 @@ pub async fn add_user(
         _ => (),
     };
 
-    let user_entity_result = user_db::create_user(db, name_san.as_ref(), email.as_deref());
+    let mut con = common::get_db_con(&db).await;
+    let user_entity_result =
+        user_db::create_user(&mut con, name_san.as_ref(), email.as_deref());
 
     match user_entity_result.await {
         Ok(user_entity) => {
@@ -141,7 +140,7 @@ pub async fn update_user(
     let disabled = user_req.is_disabled;
 
     let user_entity_result = user_db::update_user(
-        db,
+        &db,
         &settings,
         user_id,
         name_san.as_ref(),
