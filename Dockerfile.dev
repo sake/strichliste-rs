@@ -8,9 +8,6 @@ RUN curl -L https://github.com/strichliste/strichliste-web-frontend/releases/dow
 
 FROM debian:bullseye
 
-ARG TZ=Europe/Berlin
-RUN ln -fs /usr/share/zoneinfo/$TZ /etc/localtime
-
 COPY --from=prepare /srv /srv
 
 RUN apt update && apt -y install nginx vim procps inotify-tools && apt clean
@@ -26,6 +23,7 @@ COPY docker/run_strichliste_dev.sh /usr/local/bin/
 
 ENV BIND_ADDRESS=[::]:3030 DB_FILE=/var/lib/strichliste-rs/strichliste.sqlite
 
+ENV TZ=Europe/Berlin
 EXPOSE 8080/tcp
 #CMD nginx && strichliste-rs
 CMD run_strichliste_dev.sh
