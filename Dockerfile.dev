@@ -8,6 +8,9 @@ RUN curl -L https://github.com/strichliste/strichliste-web-frontend/releases/dow
 
 FROM debian:bullseye
 
+ARG TZ=Europe/Berlin
+RUN ln -fs /usr/share/zoneinfo/$TZ /etc/localtime
+
 COPY --from=prepare /srv /srv
 
 RUN apt update && apt -y install nginx vim procps inotify-tools && apt clean
