@@ -29,40 +29,22 @@ pub async fn get_articles(
     //     .flatten()
     //     .unwrap_or(false);
 
-    let articles = article_db::get_articles(&db, limit, offset, active).await;
-    let num_articles = article_db::num_active(&db).await;
+    let articles = article_db::get_articles(&db, limit, offset, active).await?;
+    let num_articles = article_db::num_active(&db).await?;
 
-    match (articles, num_articles) {
-        (Ok(a), Ok(num_a)) => {
-            let result = model::ArticlesResp {
-                articles: a,
-                count: num_a as usize,
-            };
-            return Ok(Box::new(warp::reply::json(&result)));
-        }
-        (Err(e), _) => {
-            println!("Failed to query article table. {}", e);
-            return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
-        }
-        (_, Err(e)) => {
-            println!("Failed to calculate number of active articles. {}", e);
-            return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
-        }
+    let result = model::ArticlesResp {
+        articles,
+        count: num_articles as usize,
     };
+    return Ok(Box::new(warp::reply::json(&result)));
 }
 
 pub async fn get_article(
     db: SqlitePool,
     article_id: i32,
 ) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
-    return match article_db::get_article(&db, Some(article_id)).await {
-        Ok(Some(result)) => Ok(Box::new(warp::reply::json(&result))),
-        Ok(None) => Ok(Box::new(warp::http::StatusCode::NOT_FOUND)),
-        Err(e) => {
-            println!("Failed to query article table. {}", e);
-            Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR))
-        }
-    };
+    let article = article_db::get_article_or_error(&db, article_id).await?;
+    return Ok(Box::new(warp::reply::json(&model::ArticleResp { article })));
 }
 
 pub async fn add_article(
@@ -75,15 +57,9 @@ pub async fn add_article(
         .map(|v| v.trim().to_owned())
         .filter(|v| !v.is_empty());
 
-    let article_result = article_db::add_article(&db, name, barcode.as_deref(), req.amount);
+    let article = article_db::add_article(&db, name, barcode.as_deref(), req.amount).await?;
 
-    return match article_result.await {
-        Ok(result) => Ok(Box::new(warp::reply::json(&result))),
-        Err(e) => {
-            println!("Failed to add new article. {}", e);
-            return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
-        }
-    };
+    return Ok(Box::new(warp::reply::json(&model::ArticleResp { article })));
 }
 
 pub async fn update_article(
@@ -97,28 +73,17 @@ pub async fn update_article(
         .map(|v| v.trim().to_owned())
         .filter(|v| !v.is_empty());
 
-    let article_result = article_db::update_article(&db, precursor_id, name, barcode.as_deref(), req.amount);
+    let article =
+        article_db::update_article(&db, precursor_id, name, barcode.as_deref(), req.amount).await?;
 
-    return match article_result.await {
-        Ok(result) => Ok(Box::new(warp::reply::json(&result))),
-        Err(e) => {
-            println!("Failed to update article. {}", e);
-            return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
-        }
-    };
+    return Ok(Box::new(warp::reply::json(&article)));
 }
 
 pub async fn delete_article(
     db: SqlitePool,
     article_id: i32,
 ) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
-    let article_result = article_db::delete_article(&db, article_id);
+    let article = article_db::delete_article(&db, article_id).await?;
 
-    return match article_result.await {
-        Ok(result) => Ok(Box::new(warp::reply::json(&result))),
-        Err(e) => {
-            println!("Failed to delete article. {}", e);
-            return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
-        }
-    };
+    return Ok(Box::new(warp::reply::json(&model::ArticleResp { article })));
 }

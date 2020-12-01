@@ -29,6 +29,7 @@ pub struct ArticleEntity {
     #[serde(rename(serialize = "isActive", deserialize = "isActive"))]
     pub active: bool,
     pub created: String,
+    #[serde(rename(serialize = "usageCount", deserialize = "usageCount"))]
     pub usage_count: i32,
 }
 
@@ -123,9 +124,19 @@ pub struct UserResp {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ArticleResp {
+    pub article: ArticleObject,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ArticlesResp {
     pub count: usize,
     pub articles: Vec<ArticleObject>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TransactionResp {
+    pub transaction: TransactionObject,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

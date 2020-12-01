@@ -1,10 +1,10 @@
 use std::{borrow::Cow, convert::Infallible, env, sync::Arc};
 
 use regex::Regex;
-use sqlx::{pool::PoolConnection, types::chrono::Local, Sqlite, SqlitePool};
+use sqlx::{types::chrono::Local, SqlitePool};
 use warp::Filter;
 
-use crate::settings;
+use crate::{error::ClientError, settings};
 
 pub fn env_or(key: &str, default: &str) -> String {
     return env::var(key).ok().unwrap_or(default.to_string());
@@ -14,11 +14,6 @@ pub fn with_db(
     db_pool: SqlitePool,
 ) -> impl Filter<Extract = (SqlitePool,), Error = Infallible> + Clone {
     warp::any().map(move || db_pool.clone())
-}
-
-pub async fn get_db_con(db_pool: &SqlitePool) -> PoolConnection<Sqlite> {
-    let con = db_pool.acquire().await.unwrap();
-    con
 }
 
 pub fn with_settings(
@@ -34,12 +29,12 @@ pub fn sanitize_control_chars(input: &str) -> Cow<str> {
     return re.replace_all(input, "");
 }
 
-pub fn assert_email(input: &str) -> Result<(), &str> {
+pub fn assert_email(input: &str) -> Result<(), ClientError> {
     let re = Regex::new(r#"^[a-zA-Z0-9.!#$%&’*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$"#)
         .unwrap();
     return match re.is_match(input) {
         true => Ok(()),
-        false => Err("Value is not an email address."),
+        false => Err(ClientError::ParameterInvalid("Value is not an email address.".to_string())),
     };
 }
 

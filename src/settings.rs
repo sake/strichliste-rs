@@ -1,4 +1,5 @@
 use crate::common;
+use log::error;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 
@@ -24,7 +25,7 @@ pub fn get_stale_period(settings: &StrichlisteSetting) -> i64 {
     let stale_period = match ms_converter::ms(stale_val) {
         Ok(v) => v * 1000,
         Err(err) => {
-            eprintln!(
+            error!(
                 "Error evaluating stale, value. Using a 10 days default.\n  {}",
                 err
             );

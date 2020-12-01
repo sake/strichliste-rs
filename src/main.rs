@@ -1,3 +1,5 @@
+use log::{LevelFilter, info};
+use simple_logger::SimpleLogger;
 use sqlx::sqlite::SqlitePool;
 use std::collections::HashMap;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -5,11 +7,11 @@ use warp::Filter;
 
 use crate::common::{with_db, with_settings};
 
-mod error;
 mod article_api;
 mod article_db;
 mod common;
 mod db;
+mod error;
 mod model;
 mod settings;
 mod settings_api;
@@ -29,6 +31,11 @@ const DB_FILE_DEFAULT: &str = "/var/lib/strichliste/strichliste.sqlite";
 
 #[tokio::main]
 async fn main() {
+    SimpleLogger::new()
+        .with_level(LevelFilter::Info)
+        .init()
+        .unwrap();
+
     let settings = match settings::load_settings(SETTINGS_FILE_ENV, SETTINGS_FILE_DEFAULT) {
         Ok(s) => s,
         Err(e) => panic!("{}", e),
@@ -53,7 +60,7 @@ async fn main() {
 }
 
 async fn start_webserver(addr: SocketAddr, db: SqlitePool, settings: settings::StrichlisteSetting) {
-    println!("Starting webserver binding to {} ...", addr);
+    info!("Starting webserver binding ...");
 
     // see next link how to add apis
     // https://blog.logrocket.com/creating-a-rest-api-in-rust-with-warp/

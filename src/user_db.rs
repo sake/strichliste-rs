@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use sqlx::{Connection, Result, SqliteConnection, sqlite::SqlitePool};
+use sqlx::{sqlite::SqlitePool, Sqlite, Transaction};
 
 use crate::{error::DbError, settings::StrichlisteSetting};
 use crate::{model, settings};
@@ -10,9 +10,9 @@ pub async fn get_users(
     settings: Arc<StrichlisteSetting>,
     disabled: bool,
     active: Option<bool>,
-) -> Result<Vec<model::UserEntity>> {
+) -> std::result::Result<Vec<model::UserEntity>, DbError> {
     // seconds until user is counted as inactive
-    let stale_period = settings::get_stale_period(settings.as_ref());
+    let stale_period = settings::get_stale_period(&settings);
 
     let (query_active, query_not_active) = match active {
         // query either or
@@ -21,9 +21,10 @@ pub async fn get_users(
         None => (true, true),
     };
 
+    let mut tx = db.begin().await?;
     let user_entities_result = sqlx::query_as::<_, model::UserEntity>(
         "SELECT id, name, email, balance, disabled, 
-         CASE WHEN updated NOTNULL THEN (strftime('%s','now') - strftime('%s',updated)) < ? ELSE FALSE END as active,
+         CASE WHEN updated NOTNULL THEN (strftime('%s','now', 'localtime') - strftime('%s',updated)) < ? ELSE FALSE END as active,
          created, updated 
          FROM user WHERE disabled IS ? AND (active IS ? OR active IS NOT ?)
          ORDER BY name",
@@ -32,9 +33,9 @@ pub async fn get_users(
     .bind(disabled)
     .bind(query_active)
     .bind(query_not_active)
-    .fetch_all(db).await;
+    .fetch_all(&mut tx).await?;
 
-    return user_entities_result;
+    return Ok(user_entities_result);
 }
 
 pub async fn get_user(
@@ -42,17 +43,28 @@ pub async fn get_user(
     settings: &StrichlisteSetting,
     user_id: &i32,
 ) -> std::result::Result<Option<model::UserEntity>, DbError> {
+    let mut tx = db.begin().await?;
+    let user = get_user_tx(&mut tx, settings, user_id).await?;
+    tx.commit().await?;
+    return Ok(user);
+}
+
+pub async fn get_user_tx(
+    tx: &mut Transaction<'static, Sqlite>,
+    settings: &StrichlisteSetting,
+    user_id: &i32,
+) -> std::result::Result<Option<model::UserEntity>, DbError> {
     let stale_period = settings::get_stale_period(settings);
 
     let user_entity_result = sqlx::query_as::<_, model::UserEntity>(
         "SELECT id, name, email, balance, disabled, 
-         CASE WHEN updated NOTNULL THEN (strftime('%s','now') - strftime('%s',updated)) < ? ELSE FALSE END as active,
+         CASE WHEN updated NOTNULL THEN (strftime('%s','now', 'localtime') - strftime('%s',updated)) < ? ELSE FALSE END as active,
          created, updated 
          FROM user WHERE id = ?",
 	)
 	.bind(stale_period)
     .bind(user_id)
-    .fetch_optional(db).await?;
+    .fetch_optional(tx).await?;
 
     return Ok(user_entity_result);
 }
@@ -67,9 +79,10 @@ pub async fn search_user(
 
     let stale_period = settings::get_stale_period(settings.as_ref());
 
+    let mut tx = db.begin().await?;
     let user_entity_result = sqlx::query_as::<_, model::UserEntity>(
         "SELECT id, name, email, balance, disabled, 
-         CASE WHEN updated NOTNULL THEN (strftime('%s','now') - strftime('%s',updated)) < ? ELSE FALSE END as active,
+         CASE WHEN updated NOTNULL THEN (strftime('%s','now', 'localtime') - strftime('%s',updated)) < ? ELSE FALSE END as active,
          created, updated 
 		 FROM user WHERE disabled IS FALSE AND name LIKE ?
 		 ORDER BY name LIMIT ?",
@@ -77,20 +90,21 @@ pub async fn search_user(
 	.bind(stale_period)
 	.bind(search)
 	.bind(limit)
-    .fetch_all(db).await?;
+    .fetch_all(&mut tx).await?;
+    tx.commit().await?;
 
     return Ok(user_entity_result);
 }
 
 pub async fn create_user(
-    db: &mut SqliteConnection,
+    db: &SqlitePool,
     name: &str,
     email: Option<&str>,
-) -> Result<model::UserEntity> {
+) -> std::result::Result<model::UserEntity, DbError> {
     let mut tx = db.begin().await?;
     let user_entity_result = sqlx::query_as::<_, model::UserEntity>(
         "INSERT INTO user (name, email, balance, disabled, created)
-		 VALUES(?, ?, 0, FALSE, datetime('now'));
+		 VALUES(?, ?, 0, FALSE, datetime('now', 'localtime'));
 		 
 		 SELECT id, name, email, balance, disabled, FALSE AS active, created, updated
          FROM user WHERE id = last_insert_rowid();",
@@ -124,7 +138,9 @@ pub async fn update_user(
     .bind(user_id)
     .execute(&mut tx)
     .await?;
+
+    let user = get_user_tx(&mut tx, settings, &user_id).await?;
     tx.commit().await?;
 
-    return get_user(&db, settings, &user_id).await.map(|v| v.unwrap());
+    return user.ok_or(DbError::EntityNotFound("User".to_string()));
 }

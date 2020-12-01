@@ -1,3 +1,6 @@
+use std::time::Duration;
+
+use log::info;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow},
     Row,
@@ -7,13 +10,22 @@ pub async fn open_db(db_file: &str) -> Result<SqlitePool, sqlx::Error> {
     let opts = SqliteConnectOptions::new()
         .filename(db_file)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .busy_timeout(Duration::from_millis(5000))
         .create_if_missing(true);
-    let db = SqlitePoolOptions::new().connect_with(opts);
-    return db.await;
+    let db = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(opts)
+        .await?;
+
+    sqlx::query("PRAGMA synchronous = NORMAL")
+        .execute(&db)
+        .await?;
+
+    return Ok(db);
 }
 
 pub async fn migrate_db(db: &SqlitePool) -> Result<(), sqlx::Error> {
-    println!("Checking DB migration ...");
+    info!("Checking DB migration ...");
 
     // get latest version number
     let mut cur_version: i32 = sqlx::query("PRAGMA user_version;")
@@ -23,7 +35,7 @@ pub async fn migrate_db(db: &SqlitePool) -> Result<(), sqlx::Error> {
 
     if cur_version == 0 {
         cur_version += 1;
-        println!("Running migration #{}", cur_version);
+        info!("Running migration #{}", cur_version);
 
         let mut tx = db.begin().await?;
         sqlx::query("

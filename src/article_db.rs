@@ -1,14 +1,15 @@
-use sqlx::{sqlite::SqlitePool, Result};
+use sqlx::{sqlite::SqlitePool, Sqlite, Transaction};
 use std::iter::Iterator;
 
-use crate::model;
+use crate::{error::DbError, model};
 
 pub async fn get_articles(
     db: &SqlitePool,
     limit: i32,
     offset: i32,
     active: bool,
-) -> Result<Vec<model::ArticleObject>> {
+) -> std::result::Result<Vec<model::ArticleObject>, DbError> {
+    let mut tx = db.begin().await?;
     let article_entities_result = sqlx::query_as::<_, model::ArticleEntity>(
 		"SELECT a1.id, a1.precursor_id, a1.name, a1.barcode, a1.amount, a1.active, a1.created, a1.usage_count
 		FROM article AS a1
@@ -19,11 +20,11 @@ pub async fn get_articles(
 	.bind(active)
 	.bind(limit)
 	.bind(offset)
-	.fetch_all(db).await?;
+    .fetch_all(&mut tx).await?;
 
     let mut result = Vec::new();
     for parent in article_entities_result {
-        let child = get_article(&db, parent.precursor_id).await?;
+        let child = get_article_tx(&mut tx, parent.precursor_id).await?;
         let o = model::ArticleObject {
             entity: parent,
             precursor: child,
@@ -34,22 +35,35 @@ pub async fn get_articles(
     return Ok(result);
 }
 
-pub async fn num_active(db: &SqlitePool) -> Result<i32> {
+pub async fn num_active(db: &SqlitePool) -> std::result::Result<i32, DbError> {
+    let mut tx = db.begin().await?;
     let count_result = sqlx::query_scalar::<_, i32>(
         "SELECT count(*)
 		FROM article
 		WHERE active IS TRUE",
     )
-    .fetch_one(db);
+    .fetch_one(&mut tx)
+    .await?;
+    tx.commit().await?;
 
-    return count_result.await;
+    return Ok(count_result);
 }
 
 pub async fn get_article(
     db: &SqlitePool,
     article_id: Option<i32>,
-) -> Result<Option<Box<model::ArticleObject>>> {
-    return match article_id {
+) -> std::result::Result<Option<Box<model::ArticleObject>>, DbError> {
+    let mut tx = db.begin().await?;
+    let article = get_article_tx(&mut tx, article_id).await?;
+    tx.commit().await?;
+    return Ok(article);
+}
+
+pub async fn get_article_tx(
+    tx: &mut Transaction<'static, Sqlite>,
+    article_id: Option<i32>,
+) -> std::result::Result<Option<Box<model::ArticleObject>>, DbError> {
+    match article_id {
         Some(aid) => {
             let article_chain = sqlx::query_as::<_, model::ArticleEntity>(
                 "WITH article_chain AS (
@@ -64,22 +78,22 @@ pub async fn get_article(
 				SELECT * FROM article_chain;",
             )
             .bind(aid)
-            .fetch_all(db)
-            .await;
+            .fetch_all(tx)
+            .await?;
 
-            article_chain.map(build_article_chain)
+            Ok(build_article_chain(article_chain))
         }
         None => Ok(None),
-    };
+    }
 }
 
 pub async fn get_article_or_error(
     db: &SqlitePool,
     article_id: i32,
-) -> Result<model::ArticleObject> {
+) -> std::result::Result<model::ArticleObject, DbError> {
     return match get_article(db, Some(article_id)).await {
         Ok(Some(article)) => Ok(*article),
-        Ok(None) => Err(sqlx::Error::RowNotFound),
+        Ok(None) => Err(DbError::EntityNotFound(("Article").to_string())),
         Err(e) => Err(e),
     };
 }
@@ -99,24 +113,24 @@ pub async fn add_article(
     name: &str,
     barcode: Option<&str>,
     amount: i32,
-) -> Result<model::ArticleObject> {
-    let article_entity_result = sqlx::query_as::<_, model::ArticleEntity>(
-        "BEGIN TRANSACTION;
-        INSERT INTO article (name, barcode, amount, active, created, usage_count)
-		VALUES(?, ?, ?, TRUE, datetime('now'), 0);
+) -> std::result::Result<model::ArticleObject, DbError> {
+    let mut tx = db.begin().await?;
+    let article_entity = sqlx::query_as::<_, model::ArticleEntity>(
+        "INSERT INTO article (name, barcode, amount, active, created, usage_count)
+		VALUES(?, ?, ?, TRUE, datetime('now', 'localtime'), 0);
 
         SELECT id, precursor_id, name, barcode, amount, active, created, usage_count
-        FROM article WHERE id = last_insert_rowid();
-        END TRANSACTION;",
+        FROM article WHERE id = last_insert_rowid();",
     )
     .bind(name)
     .bind(barcode)
     .bind(amount)
-    .fetch_one(db)
-    .await;
+    .fetch_one(&mut tx)
+    .await?;
+    tx.commit().await?;
 
-    return article_entity_result.map(|a| model::ArticleObject {
-        entity: a,
+    return Ok(model::ArticleObject {
+        entity: article_entity,
         precursor: None,
     });
 }
@@ -127,13 +141,13 @@ pub async fn update_article(
     name: &str,
     barcode: Option<&str>,
     amount: i32,
-) -> Result<model::ArticleObject> {
-    let child = get_article(db, Some(precursor_id)).await?;
+) -> std::result::Result<model::ArticleObject, DbError> {
+    let mut tx = db.begin().await?;
+    let child = get_article_tx(&mut tx, Some(precursor_id)).await?;
     let article_entity = sqlx::query_as::<_, model::ArticleEntity>(
-        "BEGIN TRANSACTION;
-        -- try to insert, trigger prevents updating inactive articles
+        "-- try to insert, trigger prevents updating inactive articles
 		INSERT INTO article (precursor_id, name, barcode, amount, active, created, usage_count)
-		SELECT id, ?, ?, ?, TRUE, datetime('now'), usage_count
+		SELECT id, ?, ?, ?, TRUE, datetime('now', 'localtime'), usage_count
 		FROM article WHERE id = ?;
 
 		-- deactivate old article if it had been active to make sure the transaction does not fail
@@ -141,16 +155,16 @@ pub async fn update_article(
 		WHERE id = ?;
 
 		SELECT id, precursor_id, name, barcode, amount, active, created, usage_count
-        FROM article WHERE id = last_insert_rowid();
-        END TRANSACTION;",
+        FROM article WHERE id = last_insert_rowid();",
     )
     .bind(name)
     .bind(barcode)
     .bind(amount)
     .bind(precursor_id)
     .bind(precursor_id)
-    .fetch_one(db)
+    .fetch_one(&mut tx)
     .await?;
+    tx.commit().await?;
 
     return Ok(model::ArticleObject {
         entity: article_entity,
@@ -158,17 +172,20 @@ pub async fn update_article(
     });
 }
 
-pub async fn delete_article(db: &SqlitePool, article_id: i32) -> Result<model::ArticleObject> {
-    sqlx::query("BEGIN TRANSACTION;
-            UPDATE article SET active = FALSE WHERE id = ?;
-            END TRANSACTION;")
+pub async fn delete_article(
+    db: &SqlitePool,
+    article_id: i32,
+) -> std::result::Result<model::ArticleObject, DbError> {
+    let mut tx = db.begin().await?;
+    sqlx::query("UPDATE article SET active = FALSE WHERE id = ?;")
         .bind(article_id)
-        .execute(db)
+        .execute(&mut tx)
         .await?;
-    let article_result = get_article(db, Some(article_id)).await?;
+    let article_result = get_article_tx(&mut tx, Some(article_id)).await?;
+    tx.commit().await?;
 
     return match article_result {
         Some(a) => Ok(*a),
-        None => Err(sqlx::error::Error::RowNotFound),
+        None => Err(DbError::EntityNotFound("Article".to_string())),
     };
 }

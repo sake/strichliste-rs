@@ -1,9 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use sqlx::SqlitePool;
-use warp::reject::custom;
 
-use crate::{error::DbError, common, model, settings, user_db};
+use crate::{common, error::DbError, model, settings, user_db};
 
 pub async fn get_users(
     db: SqlitePool,
@@ -17,21 +16,13 @@ pub async fn get_users(
         .unwrap_or(false);
     let active: Option<bool> = query.get("active").map(|v| v.parse().ok()).flatten();
 
-    let user_entities = user_db::get_users(&db, settings, deleted, active);
+    let user_entities = user_db::get_users(&db, settings, deleted, active).await?;
 
-    return match user_entities.await {
-        Ok(user_entities) => {
-            let result = model::UsersResp {
-                count: user_entities.len(),
-                users: user_entities,
-            };
-            Ok(Box::new(warp::reply::json(&result)))
-        }
-        Err(e) => {
-            println!("Failed to query user table. {}", e);
-            Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR))
-        }
+    let result = model::UsersResp {
+        count: user_entities.len(),
+        users: user_entities,
     };
+    return Ok(Box::new(warp::reply::json(&result)));
 }
 
 pub async fn get_user(
@@ -39,15 +30,12 @@ pub async fn get_user(
     settings: Arc<settings::StrichlisteSetting>,
     user_id: i32,
 ) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
-    let user_entity = user_db::get_user(&db, &settings, &user_id).await;
+    let user_entity = user_db::get_user(&db, &settings, &user_id)
+        .await?
+        .ok_or(DbError::EntityNotFound(format!("User")))?;
 
-    return match user_entity? {
-        Some(user_entity) => {
-            let result = model::UserResp { user: user_entity };
-            Ok(Box::new(warp::reply::json(&result)))
-        }
-        None => Err(custom(DbError::EntityNotFound)),
-    };
+    let result = model::UserResp { user: user_entity };
+    return Ok(Box::new(warp::reply::json(&result)));
 }
 
 pub async fn find_user(
@@ -62,21 +50,13 @@ pub async fn find_user(
         .flatten()
         .unwrap_or(25);
 
-    let user_entity_result = user_db::search_user(&db, settings, name_search, limit);
+    let user_entity = user_db::search_user(&db, settings, name_search, limit).await?;
 
-    return match user_entity_result.await {
-        Ok(user_entity) => {
-            let result = model::UsersResp {
-                count: user_entity.len(),
-                users: user_entity,
-            };
-            Ok(Box::new(warp::reply::json(&result)))
-        }
-        Err(e) => {
-            println!("Failed to query user table. {}", e);
-            Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR))
-        }
+    let result = model::UsersResp {
+        count: user_entity.len(),
+        users: user_entity,
     };
+    return Ok(Box::new(warp::reply::json(&result)));
 }
 
 pub async fn add_user(
@@ -86,33 +66,18 @@ pub async fn add_user(
     let name = user_req.name.trim();
     let name_san = common::sanitize_control_chars(name);
 
-    let email = user_req.email;
+    let email = user_req.email.map(|v| v.trim().to_owned());
     // check email
-    match email
+    email
         .as_deref()
-        .filter(|v| !v.trim().is_empty())
+        .filter(|v| !v.is_empty())
         .map(|v| common::assert_email(v))
-    {
-        Some(Err(_)) => {
-            return Ok(Box::new(warp::http::StatusCode::FORBIDDEN));
-        }
-        _ => (),
-    };
+        .transpose()?;
 
-    let mut con = common::get_db_con(&db).await;
-    let user_entity_result =
-        user_db::create_user(&mut con, name_san.as_ref(), email.as_deref());
+    let user_entity = user_db::create_user(&db, name_san.as_ref(), email.as_deref()).await?;
 
-    match user_entity_result.await {
-        Ok(user_entity) => {
-            let result = model::UserResp { user: user_entity };
-            return Ok(Box::new(warp::reply::json(&result)));
-        }
-        Err(e) => {
-            println!("Failed to add new user. {}", e);
-            return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
-        }
-    };
+    let result = model::UserResp { user: user_entity };
+    return Ok(Box::new(warp::reply::json(&result)));
 }
 
 pub async fn update_user(
@@ -124,38 +89,26 @@ pub async fn update_user(
     let name = user_req.name.trim();
     let name_san = common::sanitize_control_chars(name);
 
-    let email = user_req.email;
+    let email = user_req.email.map(|v| v.trim().to_owned());
     // check email
-    match email
+    email
         .as_deref()
-        .filter(|v| !v.trim().is_empty())
+        .filter(|v| !v.is_empty())
         .map(|v| common::assert_email(v))
-    {
-        Some(Err(_)) => {
-            return Ok(Box::new(warp::http::StatusCode::FORBIDDEN));
-        }
-        _ => (),
-    };
+        .transpose()?;
 
     let disabled = user_req.is_disabled;
 
-    let user_entity_result = user_db::update_user(
+    let user_entity = user_db::update_user(
         &db,
         &settings,
         user_id,
         name_san.as_ref(),
         email.as_deref(),
         disabled,
-    );
+    )
+    .await?;
 
-    match user_entity_result.await {
-        Ok(user_entity) => {
-            let result = model::UserResp { user: user_entity };
-            return Ok(Box::new(warp::reply::json(&result)));
-        }
-        Err(e) => {
-            println!("Failed to update user. {}", e);
-            return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR));
-        }
-    };
+    let result = model::UserResp { user: user_entity };
+    return Ok(Box::new(warp::reply::json(&result)));
 }
