@@ -1,4 +1,4 @@
-use log::{LevelFilter, info};
+use log::{info, LevelFilter};
 use simple_logger::SimpleLogger;
 use sqlx::sqlite::SqlitePool;
 use std::collections::HashMap;
@@ -12,6 +12,8 @@ mod article_db;
 mod common;
 mod db;
 mod error;
+mod metrics_api;
+mod metrics_db;
 mod model;
 mod settings;
 mod settings_api;
@@ -162,12 +164,21 @@ async fn start_webserver(addr: SocketAddr, db: SqlitePool, settings: settings::S
         .and_then(transaction_api::add_transaction);
     let transaction_api = user_path.and(get_user_transactions.or(add_user_transaction));
 
+    // metrics API
+    let system_metrics = warp::get()
+        .and(with_db(db.clone()))
+        .and(warp::path!("metrics"))
+        .and(warp::query::<HashMap<String, String>>())
+        .and_then(metrics_api::get_sys_metrics);
+    let metrics_api = system_metrics;
+
     // bind it together
     let api = warp::path("api").and(
         settings_api
             .or(user_api)
             .or(article_api)
             .or(transaction_api)
+            .or(metrics_api)
             .recover(error::handle_my_error),
     );
 

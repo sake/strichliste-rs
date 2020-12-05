@@ -72,6 +72,23 @@ pub struct TransactionObject {
     pub sender: Option<UserEntity>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DailyTransaction {
+    pub date: String,
+    pub transactions: i32,
+    #[serde(rename(serialize = "distinctUsers", deserialize = "distinctUsers"))]
+    pub distinct_users: i32,
+    pub balance: i32,
+    pub charged: TransactionSum,
+    pub spent: TransactionSum,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TransactionSum {
+    pub amount: i32,
+    pub transactions: i32,
+}
+
 //
 // request objects
 //
@@ -143,4 +160,15 @@ pub struct TransactionResp {
 pub struct TransactionsResp {
     pub count: usize,
     pub transactions: Vec<TransactionObject>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SystemMetrics {
+    pub balance: i32,
+    #[serde(rename(serialize = "transactionCount", deserialize = "transactionCount"))]
+    pub transaction_count: i32,
+    #[serde(rename(serialize = "userCount", deserialize = "userCount"))]
+    pub user_count: i32,
+    pub articles: Vec<ArticleObject>,
+    pub days: Vec<DailyTransaction>,
 }
