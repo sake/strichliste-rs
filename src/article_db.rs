@@ -159,7 +159,13 @@ pub async fn update_article(
     amount: i32,
 ) -> std::result::Result<model::ArticleObject, DbError> {
     let mut tx = db.begin().await?;
-    // let child = get_article_tx(&mut tx, Some(precursor_id)).await?;
+    let child = get_article_tx(&mut tx, Some(precursor_id))
+        .await?
+        .map(|mut a| {
+            a.entity.active = false;
+            a
+        });
+
     let article_entity = sqlx::query_as::<_, model::ArticleEntity>(
         "-- try to insert, trigger prevents updating inactive articles
 		INSERT INTO article (precursor_id, name, barcode, amount, active, created, usage_count)
@@ -184,8 +190,7 @@ pub async fn update_article(
 
     return Ok(model::ArticleObject {
         entity: article_entity,
-        // precursor: child,
-        precursor: None,
+        precursor: child,
     });
 }
 
