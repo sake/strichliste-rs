@@ -13,7 +13,7 @@ pub async fn open_db(db_file: &str) -> Result<SqlitePool, sqlx::Error> {
         .busy_timeout(Duration::from_millis(5000))
         .create_if_missing(true);
     let db = SqlitePoolOptions::new()
-        .max_connections(1)
+        //.max_connections(1)
         .connect_with(opts)
         .await?;
 

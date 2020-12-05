@@ -1,7 +1,8 @@
 use std::{borrow::Cow, convert::Infallible, env, sync::Arc};
 
+use chrono::Local;
 use regex::Regex;
-use sqlx::{types::chrono::Local, SqlitePool};
+use sqlx::{SqlitePool};
 use warp::Filter;
 
 use crate::{error::ClientError, settings};

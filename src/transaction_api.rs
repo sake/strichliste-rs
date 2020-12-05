@@ -63,7 +63,7 @@ pub async fn add_transaction(
         (None, Some(article_id), _) => {
             let quantity = req.quantity.unwrap_or(1);
 
-            let article = match article_db::get_article_or_error(&db, article_id).await {
+            let article = match article_db::get_article_or_error_tx(&mut tx, article_id).await {
                 Ok(v) => v,
                 Err(_) => return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
             };

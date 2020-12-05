@@ -32,6 +32,8 @@ pub async fn get_articles(
         result.push(o);
     }
 
+    tx.commit().await?;
+
     return Ok(result);
 }
 
@@ -49,15 +51,15 @@ pub async fn num_active(db: &SqlitePool) -> std::result::Result<i32, DbError> {
     return Ok(count_result);
 }
 
-pub async fn get_article(
-    db: &SqlitePool,
-    article_id: Option<i32>,
-) -> std::result::Result<Option<Box<model::ArticleObject>>, DbError> {
-    let mut tx = db.begin().await?;
-    let article = get_article_tx(&mut tx, article_id).await?;
-    tx.commit().await?;
-    return Ok(article);
-}
+// pub async fn get_article(
+//     db: &SqlitePool,
+//     article_id: Option<i32>,
+// ) -> std::result::Result<Option<Box<model::ArticleObject>>, DbError> {
+//     let mut tx = db.begin().await?;
+//     let article = get_article_tx(&mut tx, article_id).await?;
+//     tx.commit().await?;
+//     return Ok(article);
+// }
 
 pub async fn get_article_tx(
     tx: &mut Transaction<'static, Sqlite>,
@@ -91,7 +93,17 @@ pub async fn get_article_or_error(
     db: &SqlitePool,
     article_id: i32,
 ) -> std::result::Result<model::ArticleObject, DbError> {
-    return match get_article(db, Some(article_id)).await {
+    let mut tx = db.begin().await?;
+    let article = get_article_or_error_tx(&mut tx, article_id).await?;
+    tx.commit().await?;
+    return Ok(article);
+}
+
+pub async fn get_article_or_error_tx(
+    tx: &mut Transaction<'static, Sqlite>,
+    article_id: i32,
+) -> std::result::Result<model::ArticleObject, DbError> {
+    return match get_article_tx(tx, Some(article_id)).await {
         Ok(Some(article)) => Ok(*article),
         Ok(None) => Err(DbError::EntityNotFound(("Article").to_string())),
         Err(e) => Err(e),
