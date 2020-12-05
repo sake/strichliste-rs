@@ -47,6 +47,11 @@ pub struct Settings {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SettingsResp {
+    pub settings: StrichlisteSetting,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct StrichlisteSetting {
     pub article: ArticleSettings,
     pub common: CommonSettings,
