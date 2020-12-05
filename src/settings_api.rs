@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
-use crate::settings;
+use crate::{model::{JsonReply, json_reply}, settings};
 
 pub async fn get_settings(
     settings: Arc<settings::StrichlisteSetting>,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<settings::SettingsWrapper>, warp::Rejection> {
     let result = settings::SettingsWrapper {
         parameters: settings::Settings {
             strichliste: settings.as_ref().clone(),
         },
     };
-    return Ok(Box::new(warp::reply::json(&result)));
+
+    Ok(json_reply(result))
 }

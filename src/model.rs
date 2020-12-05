@@ -1,4 +1,22 @@
 use serde::{Deserialize, Serialize};
+use warp::Reply;
+
+//
+// Helper to provide typed JSON replies
+//
+
+#[derive(Clone)]
+pub struct JsonReply<T: Serialize>(T);
+
+pub fn json_reply<T: Serialize>(val: T) -> JsonReply<T> {
+    JsonReply(val)
+}
+
+impl<T: Serialize + Send> Reply for JsonReply<T> {
+    fn into_response(self) -> warp::reply::Response {
+        warp::reply::json(&self.0).into_response()
+    }
+}
 
 //
 // DB entities

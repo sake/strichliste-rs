@@ -2,12 +2,17 @@ use std::{collections::HashMap, ops::Sub};
 
 use sqlx::SqlitePool;
 
-use crate::{error::DbError, metrics_db, model::SystemMetrics};
+use crate::{
+    error::DbError,
+    metrics_db,
+    model::SystemMetrics,
+    model::{json_reply, JsonReply},
+};
 
 pub async fn get_sys_metrics(
     db: SqlitePool,
     query: HashMap<String, String>,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<SystemMetrics>, warp::Rejection> {
     let days: u32 = query
         .get("days")
         .map(|v| v.parse().ok())
@@ -36,7 +41,7 @@ pub async fn get_sys_metrics(
         days,
     };
 
-    return Ok(Box::new(warp::reply::json(&metrics)));
+    Ok(json_reply(metrics))
 }
 
 // pub async fn get_user_metrics(

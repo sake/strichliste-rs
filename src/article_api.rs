@@ -2,12 +2,20 @@ use std::collections::HashMap;
 
 use sqlx::SqlitePool;
 
-use crate::{article_db, model};
+use crate::{
+    article_db,
+    model::{self, json_reply, JsonReply},
+};
 
 pub async fn get_articles(
     db: SqlitePool,
     query: HashMap<String, String>,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<model::ArticlesResp>, warp::Rejection> {
+    let ancestor: bool = query
+        .get("ancestor")
+        .map(|v| v.parse().ok())
+        .flatten()
+        .unwrap_or(true);
     let active: bool = query
         .get("active")
         .map(|v| v.parse().ok())
@@ -23,34 +31,31 @@ pub async fn get_articles(
         .map(|v| v.parse().ok())
         .flatten()
         .unwrap_or(0);
-    // let ancestor: bool = query
-    //     .get("ancestor")
-    //     .map(|v| v.parse().ok())
-    //     .flatten()
-    //     .unwrap_or(false);
 
-    let articles = article_db::get_articles(&db, limit, offset, active).await?;
+    let articles = article_db::get_articles(&db, limit, offset, active, ancestor).await?;
     let num_articles = article_db::num_active(&db).await?;
 
     let result = model::ArticlesResp {
         articles,
         count: num_articles as usize,
     };
-    return Ok(Box::new(warp::reply::json(&result)));
+
+    Ok(json_reply(result))
 }
 
 pub async fn get_article(
     db: SqlitePool,
     article_id: i32,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<model::ArticleResp>, warp::Rejection> {
     let article = article_db::get_article_or_error(&db, article_id).await?;
-    return Ok(Box::new(warp::reply::json(&model::ArticleResp { article })));
+
+    Ok(json_reply(model::ArticleResp { article }))
 }
 
 pub async fn add_article(
     db: SqlitePool,
     req: model::ArticleAddReq,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<model::ArticleResp>, warp::Rejection> {
     let name = req.name.trim();
     let barcode = req
         .barcode
@@ -59,14 +64,14 @@ pub async fn add_article(
 
     let article = article_db::add_article(&db, name, barcode.as_deref(), req.amount).await?;
 
-    return Ok(Box::new(warp::reply::json(&model::ArticleResp { article })));
+    Ok(json_reply(model::ArticleResp { article }))
 }
 
 pub async fn update_article(
     db: SqlitePool,
     precursor_id: i32,
     req: model::ArticleAddReq,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<model::ArticleResp>, warp::Rejection> {
     let name = req.name.trim();
     let barcode = req
         .barcode
@@ -76,14 +81,14 @@ pub async fn update_article(
     let article =
         article_db::update_article(&db, precursor_id, name, barcode.as_deref(), req.amount).await?;
 
-    return Ok(Box::new(warp::reply::json(&article)));
+    Ok(json_reply(model::ArticleResp { article }))
 }
 
 pub async fn delete_article(
     db: SqlitePool,
     article_id: i32,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<model::ArticleResp>, warp::Rejection> {
     let article = article_db::delete_article(&db, article_id).await?;
 
-    return Ok(Box::new(warp::reply::json(&model::ArticleResp { article })));
+    Ok(json_reply(model::ArticleResp { article }))
 }

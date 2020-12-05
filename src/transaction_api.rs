@@ -7,6 +7,8 @@ use crate::{
     error::{ClientError, DbError},
     model,
     model::TransactionResp,
+    model::TransactionsResp,
+    model::{json_reply, JsonReply},
     settings::StrichlisteSetting,
     transaction_db, user_db,
 };
@@ -16,7 +18,7 @@ pub async fn get_transactions(
     settings: Arc<StrichlisteSetting>,
     user_id: i32,
     query: HashMap<String, i32>,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<TransactionsResp>, warp::Rejection> {
     let limit = query.get("limit").unwrap_or(&5);
     let offset = query.get("offset").unwrap_or(&0);
 
@@ -28,7 +30,8 @@ pub async fn get_transactions(
         transactions,
         count: num_transactions as usize,
     };
-    return Ok(Box::new(warp::reply::json(&result)));
+
+    Ok(json_reply(result))
 }
 
 pub async fn add_transaction(
@@ -36,12 +39,14 @@ pub async fn add_transaction(
     settings: Arc<StrichlisteSetting>,
     user_id: i32,
     req: model::TransactionAddReq,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<TransactionResp>, warp::Rejection> {
     let mut tx = db.begin().await.map_err(|e| -> DbError { e.into() })?;
     let user = match user_db::get_user_tx(&mut tx, &*settings, &user_id).await {
         Ok(Some(u)) => u,
-        Ok(None) => return Ok(Box::new(warp::http::StatusCode::NOT_FOUND)),
-        Err(_) => return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
+        Ok(None) => {
+            return Err(DbError::EntityNotFound("Sender does not exist.".to_string()).into())
+        }
+        Err(e) => return Err(e.into()),
     };
 
     let transaction = match (req.amount, req.article_id, req.recipient_id) {
@@ -65,7 +70,7 @@ pub async fn add_transaction(
 
             let article = match article_db::get_article_or_error_tx(&mut tx, article_id).await {
                 Ok(v) => v,
-                Err(_) => return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
+                Err(e) => return Err(e.into()),
             };
 
             let amount = article.entity.amount * quantity * -1;
@@ -87,8 +92,12 @@ pub async fn add_transaction(
         (Some(amount), None, Some(recipient_id)) if amount < 0 => {
             let recipient = match user_db::get_user_tx(&mut tx, &*settings, &recipient_id).await {
                 Ok(Some(v)) => v,
-                Ok(None) => return Ok(Box::new(warp::http::StatusCode::NOT_FOUND)),
-                Err(_) => return Ok(Box::new(warp::http::StatusCode::INTERNAL_SERVER_ERROR)),
+                Ok(None) => {
+                    return Err(
+                        DbError::EntityNotFound("Recipient does not exist.".to_string()).into(),
+                    )
+                }
+                Err(e) => return Err(e.into()),
             };
 
             // checking the payee is sufficient
@@ -113,7 +122,7 @@ pub async fn add_transaction(
         }
     };
 
-    Ok(Box::new(warp::reply::json(&TransactionResp { transaction })))
+    Ok(json_reply(TransactionResp { transaction }))
 }
 
 fn check_limit(

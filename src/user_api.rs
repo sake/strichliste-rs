@@ -1,14 +1,20 @@
 use std::{collections::HashMap, sync::Arc};
 
+use model::UsersResp;
 use sqlx::SqlitePool;
 
-use crate::{common, error::DbError, model, settings, user_db};
+use crate::{
+    common,
+    error::DbError,
+    model::{self, json_reply, JsonReply, UserResp},
+    settings, user_db,
+};
 
 pub async fn get_users(
     db: SqlitePool,
     settings: Arc<settings::StrichlisteSetting>,
     query: HashMap<String, String>,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<UsersResp>, warp::Rejection> {
     let deleted: bool = query
         .get("deleted")
         .map(|v| v.parse().ok())
@@ -22,27 +28,29 @@ pub async fn get_users(
         count: user_entities.len(),
         users: user_entities,
     };
-    return Ok(Box::new(warp::reply::json(&result)));
+
+    Ok(json_reply(result))
 }
 
 pub async fn get_user(
     db: SqlitePool,
     settings: Arc<settings::StrichlisteSetting>,
     user_id: i32,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<UserResp>, warp::Rejection> {
     let user_entity = user_db::get_user(&db, &settings, &user_id)
         .await?
         .ok_or(DbError::EntityNotFound(format!("User")))?;
 
     let result = model::UserResp { user: user_entity };
-    return Ok(Box::new(warp::reply::json(&result)));
+
+    Ok(json_reply(result))
 }
 
 pub async fn find_user(
     db: SqlitePool,
     settings: Arc<settings::StrichlisteSetting>,
     query: HashMap<String, String>,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<UsersResp>, warp::Rejection> {
     let name_search = query.get("query").map(|v| v.as_str()).unwrap_or("");
     let limit: i32 = query
         .get("limit")
@@ -56,13 +64,14 @@ pub async fn find_user(
         count: user_entity.len(),
         users: user_entity,
     };
-    return Ok(Box::new(warp::reply::json(&result)));
+
+    Ok(json_reply(result))
 }
 
 pub async fn add_user(
     db: SqlitePool,
     user_req: model::UserAddReq,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<UserResp>, warp::Rejection> {
     let name = user_req.name.trim();
     let name_san = common::sanitize_control_chars(name);
 
@@ -77,7 +86,8 @@ pub async fn add_user(
     let user_entity = user_db::create_user(&db, name_san.as_ref(), email.as_deref()).await?;
 
     let result = model::UserResp { user: user_entity };
-    return Ok(Box::new(warp::reply::json(&result)));
+
+    Ok(json_reply(result))
 }
 
 pub async fn update_user(
@@ -85,7 +95,7 @@ pub async fn update_user(
     settings: Arc<settings::StrichlisteSetting>,
     user_id: i32,
     user_req: model::UserUpdateReq,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<JsonReply<UserResp>, warp::Rejection> {
     let name = user_req.name.trim();
     let name_san = common::sanitize_control_chars(name);
 
@@ -110,5 +120,6 @@ pub async fn update_user(
     .await?;
 
     let result = model::UserResp { user: user_entity };
-    return Ok(Box::new(warp::reply::json(&result)));
+
+    Ok(json_reply(result))
 }

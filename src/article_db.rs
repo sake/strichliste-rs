@@ -8,6 +8,7 @@ pub async fn get_articles(
     limit: i32,
     offset: i32,
     active: bool,
+    ancestor: bool,
 ) -> std::result::Result<Vec<model::ArticleObject>, DbError> {
     let mut tx = db.begin().await?;
     let article_entities_result = sqlx::query_as::<_, model::ArticleEntity>(
@@ -24,7 +25,10 @@ pub async fn get_articles(
 
     let mut result = Vec::new();
     for parent in article_entities_result {
-        let child = get_article_tx(&mut tx, parent.precursor_id).await?;
+        let child = match ancestor {
+            true => get_article_tx(&mut tx, parent.precursor_id).await?,
+            false => None,
+        };
         let o = model::ArticleObject {
             entity: parent,
             precursor: child,
@@ -155,7 +159,7 @@ pub async fn update_article(
     amount: i32,
 ) -> std::result::Result<model::ArticleObject, DbError> {
     let mut tx = db.begin().await?;
-    let child = get_article_tx(&mut tx, Some(precursor_id)).await?;
+    // let child = get_article_tx(&mut tx, Some(precursor_id)).await?;
     let article_entity = sqlx::query_as::<_, model::ArticleEntity>(
         "-- try to insert, trigger prevents updating inactive articles
 		INSERT INTO article (precursor_id, name, barcode, amount, active, created, usage_count)
@@ -180,7 +184,8 @@ pub async fn update_article(
 
     return Ok(model::ArticleObject {
         entity: article_entity,
-        precursor: child,
+        // precursor: child,
+        precursor: None,
     });
 }
 
