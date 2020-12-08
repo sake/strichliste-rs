@@ -39,6 +39,13 @@ The following commands show how the container can be build and how it is started
 
 ```
 $ docker build -t strichliste-rs -f Dockerfile.alpine .
+```
+and then
+```
+$ docker run -it --rm -v data:/var/lib/strichliste-rs -p8080:8080 strichliste-rs
+```
+or
+```
 $ docker-compose up
 ```
 
