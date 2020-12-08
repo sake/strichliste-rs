@@ -189,7 +189,7 @@ pub async fn add_transaction_with_recipient_tx(
     let result = sqlx::query_as::<_, model::TransactionEntity>(
         "UPDATE user SET balance = balance + ?, updated = datetime('now', 'localtime')
         WHERE id = ?;
-        UPDATE user SET balance = (balance + ?) * -1
+        UPDATE user SET balance = balance + (? * -1)
 		WHERE id = ?;
         
         -- sender transaction
