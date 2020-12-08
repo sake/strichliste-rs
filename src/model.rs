@@ -69,6 +69,13 @@ pub struct TransactionEntity {
     pub created: String,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, sqlx::FromRow)]
+pub struct TransactionStatsEntity {
+    pub count: i32,
+    pub amount: i32,
+}
+
+
 //
 // complete data objects
 //
@@ -189,4 +196,25 @@ pub struct SystemMetrics {
     pub user_count: i32,
     pub articles: Vec<ArticleObject>,
     pub days: Vec<DailyTransaction>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UserArticles {
+    pub article: ArticleObject,
+    pub count: i32,
+    pub amount: i32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UserTransactions {
+    pub count: i32,
+    pub outgoing: TransactionStatsEntity,
+    pub incoming: TransactionStatsEntity,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UserMetrics {
+    pub balance: i32,
+    pub articles: Vec<UserArticles>,
+    pub transactions: UserTransactions,
 }

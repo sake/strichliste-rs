@@ -170,7 +170,12 @@ async fn start_webserver(addr: SocketAddr, db: SqlitePool, settings: settings::S
         .and(warp::path!("metrics"))
         .and(warp::query::<HashMap<String, String>>())
         .and_then(metrics_api::get_sys_metrics);
-    let metrics_api = system_metrics;
+    let user_metrics = warp::get()
+        .and(with_db(db.clone()))
+        .and(with_settings(settings.clone()))
+        .and(warp::path!("user" / i32 / "metrics"))
+        .and_then(metrics_api::get_user_metrics);
+    let metrics_api = system_metrics.or(user_metrics);
 
     // bind it together
     let api = warp::path("api").and(
