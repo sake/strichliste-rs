@@ -141,7 +141,7 @@ pub struct ArticleAddReq {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TransactionAddReq {
-    pub amount: Option<i32>,
+    pub amount: Option<f32>,
     pub quantity: Option<i32>,
     pub comment: Option<String>,
     #[serde(rename(serialize = "recipientId", deserialize = "recipientId"))]

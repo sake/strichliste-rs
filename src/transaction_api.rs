@@ -49,7 +49,11 @@ pub async fn add_transaction(
         Err(e) => return Err(e.into()),
     };
 
-    let transaction = match (req.amount, req.article_id, req.recipient_id) {
+    let transaction = match (
+        req.amount.map(|f| f.trunc() as i32),
+        req.article_id,
+        req.recipient_id,
+    ) {
         // transaction with pure value
         (Some(amount), None, None) => {
             check_limit(&*settings, &(user.balance + amount), &amount)?;
