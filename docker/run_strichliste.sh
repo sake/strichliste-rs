@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# in podman / has permissions which forbid spwaning processes as another user
+chmod 0755 /
+
 nginx
 
 export BIND_ADDRESS=localhost:3030
