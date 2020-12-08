@@ -1,5 +1,5 @@
 ARG CONTAINER_VERSION=3.12
-FROM rust:alpine${CONTAINER_VERSION} AS prepare
+FROM dockerhub.docker.ecsec.de/rust:alpine${CONTAINER_VERSION} AS prepare
 
 ARG FRONTEND_TGZ_URL=https://github.com/strichliste/strichliste-web-frontend/releases/download/v1.7.1/strichliste-web-frontend.tar.gz
 
@@ -16,7 +16,7 @@ COPY src/ /build/src/
 RUN cargo build --release
 
 
-FROM alpine:${CONTAINER_VERSION}
+FROM dockerhub.docker.ecsec.de/alpine:${CONTAINER_VERSION}
 
 COPY --from=prepare /web /srv
 
