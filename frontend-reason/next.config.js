@@ -1,5 +1,5 @@
-const withTM = require('next-transpile-modules')(['bs-platform'])
-
-module.exports = withTM({
-  pageExtensions: ['jsx', 'js', 'bs.js'],
-})
+module.exports = {
+    pageExtensions: ['jsx', 'js', 'bs.js'],
+    reactStrictMode: true,
+    target: 'serverless',
+}
