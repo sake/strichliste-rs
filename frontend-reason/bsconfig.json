@@ -17,8 +17,14 @@
       "subdirs": true
     }
   ],
-  "bs-dependencies": ["reason-react"],
-  "ppx-flags": [],
+  "bs-dependencies": [
+    "reason-react",
+    "bs-fetch",
+    "decco"
+  ],
+  "ppx-flags": [
+    "decco/ppx"
+  ],
   "package-specs": {
     "module": "es6-global",
     "in-source": true
